@@ -1,5 +1,5 @@
 {
-  "version": "2.19.0",
+  "version": "2.20.0",
   "files": [
     {
       "path": "RUN-ARK-MAP.bat",
@@ -19,7 +19,7 @@
     {
       "path": "arkmap/arkmap.py",
       "size": 126593,
-      "sha256": "f7d3d3029c0dda75b5099de47cea092c28e0a71c8b6980608fa3bb39fd8073ad"
+      "sha256": "e4c17c02a47b589ab1ffe8f115438f3ca21f8350e3f05246bee513b8230d771a"
     },
     {
       "path": "arkmap/arkgui.py",
@@ -48,13 +48,13 @@
     },
     {
       "path": "arkmap/web/index.html",
-      "size": 130460,
-      "sha256": "1a56100290dbe8c818a1bff6fe965f854db7a0805e9f7dbf705be7e2d009a92b"
+      "size": 131540,
+      "sha256": "6ad6a52b8ea2e6c9cbfc899a8aa8acfef4d15f9cb1c45302c91a141ba761b7fe"
     },
     {
       "path": "arkmap/web/map.html",
-      "size": 16508,
-      "sha256": "ee07b8f40a4f2eb80e773c6444aa019f6502775f4b79371e8bbecefe16321cac"
+      "size": 16837,
+      "sha256": "bb32d902f3e03f7e4ceae251f78bfa020625e70e91455d23496a143559bcbd74"
     },
     {
       "path": "arkmap/web/pois.json",

@@ -32,6 +32,13 @@
   #markbar input, #markbar select { background:#0b0e12; color:#e8ecf1; border:1px solid #4a5568; border-radius:4px; padding:3px 6px; font-size:13px; }
   #markbar button { background:#2b6cb0; color:#fff; border:0; border-radius:4px; padding:4px 12px; font-size:13px; font-weight:600; cursor:pointer; }
   .pop .del { margin-top:6px; background:#742a2a; color:#fff; border:0; border-radius:4px; padding:3px 10px; font-size:12px; cursor:pointer; }
+  /* small monitors: the layers list (atlas + family layers) can
+     outgrow the screen - let it scroll inside the control */
+  .leaflet-control-layers-expanded { max-height:72vh; overflow-y:auto; }
+  @media (max-width: 700px) {
+    #markbar input, #markbar select { max-width:44vw; }
+    #topbar .title { font-size:16px; }
+  }
 </style>
 </head>
 <body>
