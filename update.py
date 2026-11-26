@@ -21,6 +21,7 @@ import re
 import shutil
 import socket
 import sys
+import time
 import urllib.request
 from datetime import datetime
 from pathlib import Path
@@ -110,9 +111,18 @@ def main() -> int:
         return 1
     print(f"Installed version: {version_str(local_version)}")
 
+    # The window's Update button starts this updater and then
+    # closes the console, so give a running console a short grace
+    # period to shut down before refusing.
+    waited = 0.0
+    while console_is_running() and waited < 20:
+        if waited == 0:
+            print("The console is running - waiting for it to close...")
+        time.sleep(0.5)
+        waited += 0.5
     if console_is_running():
         print()
-        print("The console is running right now. Close it first "
+        print("The console is still running. Close it first "
               "(window or tray icon), then run the update again - "
               "swapping code under a live app is how installs break.")
         return 2

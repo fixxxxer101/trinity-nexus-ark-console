@@ -23,10 +23,13 @@ from __future__ import annotations
 import os
 import queue
 import re
+import subprocess
 import sys
 import threading
 import time
 import traceback
+import urllib.error
+import urllib.request
 import webbrowser
 from pathlib import Path
 
@@ -287,6 +290,28 @@ class TrayIcon:
 
 
 # ----------------------------------------------------------------- GUI ----
+REPO_RAW = ("https://raw.githubusercontent.com/fixxxxer101/"
+            "trinity-nexus-ark-console/main")
+
+
+def _latest_version():
+    """The newest console version on GitHub, as an (x, y, z) tuple.
+    Raises on any network or format problem."""
+    req = urllib.request.Request(
+        REPO_RAW + "/arkmap/arkmap.py",
+        headers={"User-Agent": "TrinityNexusArkConsole"})
+    with urllib.request.urlopen(req, timeout=30) as resp:
+        data = resp.read()
+    m = re.search(rb'VERSION\s*=\s*"(\d+)\.(\d+)\.(\d+)"', data)
+    if not m:
+        raise ValueError("no version found in the GitHub copy")
+    return tuple(int(g) for g in m.groups())
+
+
+def _version_str(v) -> str:
+    return ".".join(str(n) for n in v)
+
+
 class ConsoleGui:
     def __init__(self, cfg: dict):
         import tkinter as tk
@@ -302,6 +327,7 @@ class ConsoleGui:
                              self.q)
         self._hidden = False
         self._refreshing = False
+        self._checking_update = False
         self._log_pending = ""
         self._terminal_frame = None
         self._terminal_text = None
@@ -367,6 +393,7 @@ class ConsoleGui:
             return b
         btn("Open in Browser", self.open_browser, accent=True)
         self.refresh_btn = btn("Refresh Now", self.refresh_now)
+        self.update_btn = btn("Update", self.check_for_updates)
         btn("Hide to Tray", self.hide)
         btn("Quit", self.quit)
 
@@ -700,6 +727,77 @@ class ConsoleGui:
 
         threading.Thread(target=work, daemon=True).start()
 
+    def check_for_updates(self) -> None:
+        if self._checking_update:
+            return
+        self._checking_update = True
+        self.update_btn.configure(state="disabled", text="Checking...")
+
+        def work():
+            try:
+                self.q.put(("update_check", (True, _latest_version())))
+            except Exception as exc:
+                self.q.put(("update_check", (False, str(exc))))
+
+        threading.Thread(target=work, daemon=True).start()
+
+    def _update_check_done(self, ok, payload) -> None:
+        from tkinter import messagebox
+        self._checking_update = False
+        self.update_btn.configure(state="normal", text="Update")
+        if not ok:
+            messagebox.showerror(
+                "Update check failed",
+                "Could not reach GitHub to check for updates.\n\n"
+                f"{payload}",
+                parent=self.root)
+            return
+        local = tuple(int(n) for n in arkmap.VERSION.split("."))
+        if payload <= local:
+            messagebox.showinfo(
+                "Up to date",
+                f"You're on the latest version (v{arkmap.VERSION}).",
+                parent=self.root)
+            return
+        if messagebox.askyesno(
+                "Update available",
+                f"Version {_version_str(payload)} is available - "
+                f"you have v{arkmap.VERSION}.\n\n"
+                "Update now? The console will close, update itself "
+                "from GitHub, and you relaunch RUN-ARK-MAP.bat to "
+                "start the new version.",
+                parent=self.root):
+            self._start_update_and_quit()
+
+    def _start_update_and_quit(self) -> None:
+        from tkinter import messagebox
+        update_py = arkmap.APP_DIR.parent / "update.py"
+        if not update_py.exists():
+            messagebox.showerror(
+                "Updater missing",
+                "update.py was not found next to the app folder, "
+                "so the update cannot start. The console stays open.",
+                parent=self.root)
+            return
+        pyexe = sys.executable
+        if pyexe.lower().endswith("pythonw.exe"):
+            pyexe = pyexe[:-len("pythonw.exe")] + "python.exe"
+        flags = 0
+        if sys.platform == "win32":
+            flags = subprocess.CREATE_NEW_CONSOLE
+        try:
+            subprocess.Popen([pyexe, str(update_py)],
+                             cwd=str(update_py.parent),
+                             creationflags=flags)
+        except Exception as exc:
+            messagebox.showerror(
+                "Update could not start",
+                f"{exc}\n\nThe console stays open.",
+                parent=self.root)
+            return
+        arkmap.log("GUI: closing to update from GitHub.")
+        self.quit()
+
     def hide(self) -> None:
         if self.tray.active:
             self._hidden = True
@@ -844,6 +942,8 @@ class ConsoleGui:
                     self._refreshing = False
                     self.refresh_btn.configure(state="normal",
                                                text="Refresh Now")
+                elif kind == "update_check":
+                    self._update_check_done(*payload)
                 elif kind == "cmd":
                     if payload == "show":
                         self.show()

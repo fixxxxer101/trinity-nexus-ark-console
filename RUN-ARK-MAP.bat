@@ -6,8 +6,8 @@ rem  Trinity Nexus ARK Console - the only file you ever click.
 rem  First run on a PC: builds the app environment, then walks
 rem  through the one-time token setup in the console window.
 rem  Every later run: skips straight to starting the console.
-rem  Modes: window (default), terminal, update - pick at the
-rem  prompt, or pass one as an argument, e.g.
+rem  Modes: the window by default. Terminal mode or an update
+rem  can be passed as an argument instead, e.g.
 rem    RUN-ARK-MAP.bat console
 rem    RUN-ARK-MAP.bat update
 rem ================================================================
@@ -48,12 +48,7 @@ rem --- arguments beat the prompt
 if /i "%~1"=="console" goto console
 if /i "%~1"=="update" goto update
 
-rem --- prompt: G window, C terminal, U update
-choice /C GCU /T 3 /D G /N /M "Window opens in 3 seconds - press C for terminal, U to update, G for the window: "
-if errorlevel 3 goto update
-if errorlevel 2 goto console
-
-rem --- window mode
+rem --- window mode (updating lives on the window's Update button)
 start "" ".venv\Scripts\pythonw.exe" "arkmap\arkmap.py" --gui
 exit /b
 

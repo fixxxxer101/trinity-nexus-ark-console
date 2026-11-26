@@ -70,7 +70,7 @@ Double-click **`RUN-ARK-MAP.bat`**. The first run sets itself up and keeps going
 2. It opens a console window and asks four questions: your **API token** (typing stays hidden), your **service ID** (shown in the Nitrado panel), the **web port** (default 8770), and how often to **check the server** in minutes (default 3). The answers are saved to `~/.arkmap/config.json`.
 3. The console starts right there in that window. The first log scan backfills your server's whole history, which can take a few minutes on a long-running server.
 
-Every run after that, the same double-click opens the desktop window directly. At startup there's a 3-second prompt — **G** opens the window (the default if you do nothing), **C** runs in the terminal instead, **U** checks for updates. You can also pass a mode directly: `RUN-ARK-MAP.bat console` or `RUN-ARK-MAP.bat update`.
+Every run after that, the same double-click opens the desktop window directly — no prompts, no waiting. (Terminal mode is still there if you want it: `RUN-ARK-MAP.bat console`.)
 
 Open the web console at `http://localhost:8770` on the PC itself, or `http://<the PC's LAN address>:8770` from any phone, tablet, or PC on your home network.
 
@@ -80,9 +80,9 @@ Optional: add `arkmap/save/player_names.json` mapping gamertags or character nam
 
 This repo is the software's single home, and every install updates from here:
 
-- Press **U** at the launcher prompt (or run `RUN-ARK-MAP.bat update`, or `python update.py`).
+- Click **Update** in the desktop window. It checks GitHub and tells you if you're current; if a new version is out, it asks once, closes the console, and runs the updater. (From the command line instead: `RUN-ARK-MAP.bat update`, or `python update.py`.)
 - The updater compares your version with the one here, downloads the software files, and **checks them before swapping anything** (Python files must compile, the data table must parse). The files it replaces are backed up to `update-backup/` first, so an update can be rolled back by hand.
-- It refuses to run while the console is open — close the window/tray app first.
+- The updater waits for the console to close before swapping files, and refuses if it's still running after a short wait.
 - It **never** touches your data: not `~/.arkmap/config.json`, not `arkmap/save/` (scan state, player names, kept log copies), not the app log, not `.venv`. If an update changes the installer, the launcher refreshes the app environment by itself on the next run.
 
 If you installed with `git clone`, `git pull` works too — the built-in updater is there for ZIP installs.
