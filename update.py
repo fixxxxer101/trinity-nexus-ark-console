@@ -18,6 +18,7 @@ Update button) holds the window open at the end until Enter, so
 the result never vanishes before it is read.
 """
 import json
+import os
 import py_compile
 import re
 import shutil
@@ -81,6 +82,44 @@ def version_str(v) -> str:
     return ".".join(str(n) for n in v)
 
 
+LOCK_PATH = ROOT / "update.lock"
+
+
+def _acquire_lock() -> bool:
+    """One updater at a time: two updaters share the staging folder
+    and would interleave downloads and swaps into a mixed-version
+    install. A lock older than an hour, or one whose process is
+    gone, is stale and taken over."""
+    try:
+        if LOCK_PATH.exists():
+            age = time.time() - LOCK_PATH.stat().st_mtime
+            pid = int(LOCK_PATH.read_text(encoding="utf-8").strip() or 0)
+            alive = False
+            if pid:
+                try:
+                    os.kill(pid, 0)
+                    alive = True
+                except OSError:
+                    alive = False
+                except Exception:
+                    alive = True
+            if alive and age < 3600:
+                return False
+        LOCK_PATH.write_text(str(os.getpid()), encoding="utf-8")
+        return True
+    except Exception:
+        return True  # the lock must never be what breaks updating
+
+
+def _release_lock() -> None:
+    try:
+        if LOCK_PATH.exists() and \
+                LOCK_PATH.read_text(encoding="utf-8").strip() == str(os.getpid()):
+            LOCK_PATH.unlink()
+    except Exception:
+        pass
+
+
 def console_is_running() -> bool:
     """The console serves its web page while it runs; if the port
     answers, updating now would swap code under a live app."""
@@ -103,6 +142,17 @@ def main() -> int:
     print("Trinity Nexus ARK Console - updater")
     print("Source: github.com/fixxxxer101/trinity-nexus-ark-console")
     print()
+    if not _acquire_lock():
+        print("Another update is already running. Wait for it to "
+              "finish, then run this again.")
+        return 2
+    try:
+        return _run()
+    finally:
+        _release_lock()
+
+
+def _run() -> int:
 
     local_main = ROOT / "arkmap" / "arkmap.py"
     if not local_main.exists():
@@ -126,9 +176,12 @@ def main() -> int:
         waited += 0.5
     if console_is_running():
         print()
-        print("The console is still running. Close it first "
+        print("Something is still answering on the console's port - "
+              "normally that is the console itself. Close it first "
               "(window or tray icon), then run the update again - "
-              "swapping code under a live app is how installs break.")
+              "swapping code under a live app is how installs break. "
+              "If the console is definitely closed, another program "
+              "is using the port; close that instead.")
         return 2
 
     try:
@@ -196,10 +249,14 @@ def main() -> int:
                 (backup_dir / (rel + ".was-absent")).write_text(
                     "", encoding="utf-8")
             target.parent.mkdir(parents=True, exist_ok=True)
-            shutil.copyfile(STAGING / rel, target)
+            # Record the file BEFORE the copy: if the copy itself
+            # fails mid-write, this is exactly the file rollback
+            # must restore - appending afterwards skipped it.
             swapped.append(rel)
+            shutil.copyfile(STAGING / rel, target)
     except Exception as exc:
         print(f"ERROR while installing ({exc}) - rolling back...")
+        failed = []
         for rel in swapped:
             target = ROOT / rel
             keep = backup_dir / rel
@@ -209,8 +266,14 @@ def main() -> int:
                 elif (backup_dir / (rel + ".was-absent")).exists():
                     target.unlink(missing_ok=True)
             except Exception:
-                pass
-        print(f"Rolled back. Your previous files are in {backup_dir}")
+                failed.append(rel)
+        if failed:
+            print(f"WARNING: rollback could not restore: "
+                  f"{', '.join(failed)}. The intact previous copies "
+                  f"are in {backup_dir} - copy them back by hand "
+                  f"before launching.")
+        else:
+            print(f"Rolled back. Your previous files are in {backup_dir}")
         shutil.rmtree(STAGING, ignore_errors=True)
         return 1
 
@@ -219,8 +282,14 @@ def main() -> int:
     old_setup = backup_dir / "setup.py"
     if old_setup.exists() and \
             old_setup.read_bytes() != staged.get("setup.py", b""):
-        (ROOT / ".needs-setup").write_text(
-            "setup.py changed in this update\n", encoding="utf-8")
+        try:
+            (ROOT / ".needs-setup").write_text(
+                "setup.py changed in this update\n", encoding="utf-8")
+        except Exception as exc:
+            print(f"Note: the update itself finished, but the "
+                  f".needs-setup marker could not be written ({exc}). "
+                  f"If the app misbehaves, delete the .venv folder "
+                  f"and relaunch - setup will rebuild it.")
 
     shutil.rmtree(STAGING, ignore_errors=True)
     print()

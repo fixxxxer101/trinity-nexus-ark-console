@@ -31,6 +31,9 @@ One finding worth documenting: downloading the world save (`ShooterGame/Saved/Sa
 - Big ONLINE/OFFLINE status, who is in the world, squad averages (average level, average and total playtime, total combined level, total player deaths, average deaths), server day, deaths total, and a living-tame count
 - One tab per player with level-progression and deaths-by-creature charts, plus a live terminal tab streaming the app's own log
 - A Names tab mirroring the web console's: detected usernames with nickname editing and per-player tab toggles
+- A **Map polling** toggle: the world-save pull behind the Live Map. On Xbox/console services Nitrado never releases the save, so the pull is pure retry noise — switch it off and the deaths / tames / players trackers keep running on the log scan alone
+- The window **remembers itself**: size and position, the last tab, and the Map polling toggle are restored on the next launch (stored in `arkmap/save/gui_settings.json`, local data the updater never touches)
+- The layout **scales with the window**: squad stats flow three-across, the tab bar wraps onto extra rows instead of running off the edge, player pages scroll, and charts and wrapped text follow the live width — maximize it and nothing is clipped or lost
 - System tray icon with hide-to-tray, a close dialog that asks tray-or-close (closing needs a second confirmation), dark title bar, and a single-instance guard so duplicate copies can't pile up and fight over the port
 
 **Under the hood**
@@ -39,6 +42,8 @@ One finding worth documenting: downloading the world save (`ShooterGame/Saved/Sa
 - A unified log scanner that downloads every server log once, keeps a permanent local copy in `arkmap/save/logs/`, and feeds five trackers: deaths, presence/sessions, levels, tames, and a (so far empty — see the notes) kill tracker
 - The scanner is built to *learn formats from the logs themselves*: lines it can't parse are sampled into small candidate lists in each tracker's state file, so real-world wording gets tuned from evidence instead of guessed. That loop is how the death parser picked up three different death-line formats, including one that carries only a numeric killer ID
 - Per-file scan memory: an interrupted backfill resumes where it stopped instead of starting over
+- Scanner resilience: a log line with a malformed timestamp (or any other single poisonous line) is skipped and logged, never stalls the scan — and transient Nitrado errors are retried before a cycle is given up
+- Credential hygiene beyond the token: fileserver download tokens are redacted out of the app log, and the Settings/Overview API answers are served with password-shaped fields masked (ARK's server settings carry the admin password, which is also the RCON password — it never reaches the LAN in clear text)
 - Players are resolved from gamertag → character name → optional display name via `arkmap/save/player_names.json` (ships empty); the Names tabs edit those nicknames plus the per-player tab flags in `arkmap/save/player_show.json`
 - The RCON menu's creature and item picker tables (`arkmap/creatures.json`, ~375 creatures by class name; `arkmap/items.json`, ~220 items by number/blueprint path) are built from the ARK wiki's Creature IDs / Item IDs pages — creatures have no numeric IDs in ARK, and items whose number sources disagree on are flagged in the picker
 
@@ -86,7 +91,8 @@ This repo is the software's single home, and every install updates from here:
 
 - Click **Update** in the desktop window. It checks GitHub and tells you if you're current; if a new version is out, it asks once, closes the console, and runs the updater. (From the command line instead: `RUN-ARK-MAP.bat update`, or `python update.py`.)
 - The updater compares your version with the one here, downloads the software files, and **checks them before swapping anything** (Python files must compile, the data table must parse). The files it replaces are backed up to `update-backup/` first, so an update can be rolled back by hand.
-- The updater waits for the console to close before swapping files, and refuses if it's still running after a short wait.
+- The updater waits for the console to close before swapping files, and refuses if it's still running after a short wait. Only one updater can run at a time, and if a file swap fails halfway, the rollback restores **every** file it touched — including the one that failed — and says so honestly if a restore itself fails.
+- One effect of the v2.10.0 setup fix: the launcher now skips setup only when setup **finished** (it writes a marker at the end), so the first launch after this update runs setup once more even on a healthy install — a minute, one time, and failed first-time setups can finally recover by just double-clicking again.
 - It **never** touches your data: not `~/.arkmap/config.json`, not `arkmap/save/` (scan state, player names, kept log copies), not the app log, not `.venv`. If an update changes the installer, the launcher refreshes the app environment by itself on the next run.
 
 If you installed with `git clone`, `git pull` works too — the built-in updater is there for ZIP installs.

@@ -38,7 +38,7 @@ from datetime import datetime, timezone
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
-VERSION = "2.9.1"
+VERSION = "2.10.0"
 
 APP_DIR = Path(__file__).resolve().parent
 CONFIG_DIR = Path.home() / ".arkmap"
@@ -125,26 +125,75 @@ class ApiError(Exception):
     pass
 
 
+_SECRET_KEY_WORDS = ("token", "pass", "secret")
+
+
+def _walk_redact(obj, replacement: str):
+    """Deep-copy an API payload with credential values replaced:
+    any dict key mentioning token/pass/secret loses its value, and
+    a token= parameter inside a URL string is masked."""
+    if isinstance(obj, dict):
+        return {k: (replacement if any(w in str(k).lower()
+                                       for w in _SECRET_KEY_WORDS)
+                    else _walk_redact(v, replacement))
+                for k, v in obj.items()}
+    if isinstance(obj, list):
+        return [_walk_redact(v, replacement) for v in obj]
+    if isinstance(obj, str) and "token=" in obj:
+        return re.sub(r"token=[^&]+", "token=" + replacement, obj)
+    return obj
+
+
+def _redacted_dump(obj, limit: int = 300) -> str:
+    """json.dumps safe for the log: download answers carry a
+    short-lived fileserver token, which must never reach arkmap.log
+    (it syncs off this PC)."""
+    try:
+        return json.dumps(_walk_redact(obj, "<redacted>"))[:limit]
+    except Exception:
+        return f"<{type(obj).__name__}>"
+
+
+def _scrub_secrets(obj):
+    """_walk_redact for API responses served to the LAN: the Settings
+    and Overview payloads are Nitrado's verbatim answers, and ARK
+    server settings normally include the admin password (which is
+    also the RCON password) - it is masked, never served."""
+    return _walk_redact(obj, "••••••")
+
+
 def api_get(cfg: dict, path: str, params: dict | None = None) -> dict:
+    """GET with a small retry ladder: transient 429/5xx answers and
+    network hiccups are retried twice (1 s, then 3 s) before the call
+    is given up as an ApiError, so one Nitrado wobble no longer costs
+    a whole pull/scan cycle. Other 4xx answers fail at once."""
     url = API_BASE + path
     if params:
         url += "?" + urllib.parse.urlencode(params)
-    req = urllib.request.Request(url, headers={
-        "Authorization": f"Bearer {cfg['api_token']}",
-        "Accept": "application/json",
-    })
-    try:
-        with urllib.request.urlopen(req, timeout=60) as resp:
-            return json.loads(resp.read().decode("utf-8"))
-    except urllib.error.HTTPError as exc:
-        body = ""
+    last_error: Exception | None = None
+    for attempt, delay in enumerate((0.0, 1.0, 3.0)):
+        if delay:
+            time.sleep(delay)
+        req = urllib.request.Request(url, headers={
+            "Authorization": f"Bearer {cfg['api_token']}",
+            "Accept": "application/json",
+        })
         try:
-            body = exc.read().decode("utf-8", "replace")[:400]
-        except Exception:
-            pass
-        raise ApiError(f"Nitrado API {exc.code} on {path}: {body or exc.reason}")
-    except Exception as exc:
-        raise ApiError(f"Nitrado API call failed on {path}: {exc}")
+            with urllib.request.urlopen(req, timeout=60) as resp:
+                return json.loads(resp.read().decode("utf-8"))
+        except urllib.error.HTTPError as exc:
+            body = ""
+            try:
+                body = exc.read().decode("utf-8", "replace")[:400]
+            except Exception:
+                pass
+            last_error = ApiError(
+                f"Nitrado API {exc.code} on {path}: {body or exc.reason}")
+            if exc.code not in (429, 500, 502, 503, 504):
+                raise last_error
+        except Exception as exc:
+            last_error = ApiError(f"Nitrado API call failed on {path}: {exc}")
+    raise last_error or ApiError(f"Nitrado API call failed on {path}")
 
 
 def api_post_json(cfg: dict, path: str, payload: dict) -> dict:
@@ -173,7 +222,7 @@ def api_list_dir(cfg: dict, directory: str = "") -> list[dict]:
     out = api_get(cfg, f"/services/{cfg['service_id']}/gameservers/file_server/list",
                   {"dir": directory} if directory else None)
     if out.get("status") != "success":
-        raise ApiError(f"List failed for '{directory}': {str(out)[:300]}")
+        raise ApiError(f"List failed for '{directory}': {_redacted_dump(out)}")
     return out.get("data", {}).get("entries", [])
 
 
@@ -258,17 +307,26 @@ def _backup_stamp(name: str):
     return (y, mo, d, hh, mm, ss)
 
 
+def _gunzip_into(gz_path: Path, out: Path) -> int:
+    """Decompress beside the target and replace atomically, so a
+    corrupt gzip or an interrupted copy never leaves a truncated
+    world file in place of the last good one."""
+    tmp = out.with_suffix(out.suffix + ".tmp")
+    with gzip.open(gz_path, "rb") as fh_in, open(tmp, "wb") as fh_out:
+        shutil.copyfileobj(fh_in, fh_out)
+    os.replace(tmp, out)
+    return out.stat().st_size
+
+
 def _fetch_world(cfg: dict, remote_path: str) -> int:
     """Download a world save (plain .ark or a gzipped game backup) into
     place as the local MAP_FILE. Returns the decompressed size."""
     if remote_path.lower().endswith(".gz"):
         tmp = SAVE_DIR / "_world.ark.gz"
         api_download(cfg, remote_path, tmp)
-        out = SAVE_DIR / MAP_FILE
-        with gzip.open(tmp, "rb") as fh_in, open(out, "wb") as fh_out:
-            shutil.copyfileobj(fh_in, fh_out)
+        size = _gunzip_into(tmp, SAVE_DIR / MAP_FILE)
         tmp.unlink(missing_ok=True)
-        return out.stat().st_size
+        return size
     return api_download(cfg, remote_path, SAVE_DIR / MAP_FILE)
 
 
@@ -277,11 +335,9 @@ def _fetch_world_post(cfg: dict, remote_path: str) -> int:
     if remote_path.lower().endswith(".gz"):
         tmp = SAVE_DIR / "_world.ark.gz"
         api_download_post(cfg, remote_path, tmp)
-        out = SAVE_DIR / MAP_FILE
-        with gzip.open(tmp, "rb") as fh_in, open(out, "wb") as fh_out:
-            shutil.copyfileobj(fh_in, fh_out)
+        size = _gunzip_into(tmp, SAVE_DIR / MAP_FILE)
         tmp.unlink(missing_ok=True)
-        return out.stat().st_size
+        return size
     return api_download_post(cfg, remote_path, SAVE_DIR / MAP_FILE)
 
 
@@ -340,6 +396,16 @@ def _walk_for_save(cfg: dict, root: str) -> str | None:
             if _entry_is_dir(e):
                 queue.append(str(e.get("path") or f"{current.rstrip('/')}/{_entry_name(e)}"))
     return None
+
+
+def _write_pull_state(state: dict) -> None:
+    """pull_state.json via tmp + replace, like every tracker file:
+    a crash mid-write must not truncate the state the next cycle
+    depends on (a torn file used to cost a full save-dir rediscovery)."""
+    path = SAVE_DIR / "pull_state.json"
+    tmp = path.with_name(f"pull_state.{threading.get_ident()}.tmp")
+    tmp.write_text(json.dumps(state, indent=2), encoding="utf-8")
+    os.replace(tmp, path)
 
 
 def find_save_dir(cfg: dict, state: dict | None = None) -> str:
@@ -496,8 +562,7 @@ def find_save_dir(cfg: dict, state: dict | None = None) -> str:
         if state is not None:
             state["walled"] = True
             state["file_root"] = root
-            (SAVE_DIR / "pull_state.json").write_text(
-                json.dumps(state, indent=2), encoding="utf-8")
+            _write_pull_state(state)
         return ""
     raise ApiError("Could not find Valguero_P.ark anywhere on the file server. "
                    "The folder listings above show what the server exposes.")
@@ -544,7 +609,7 @@ def api_download_post(cfg: dict, remote_path: str, local: Path) -> int:
 
 def _fetch_via_answer(out: dict, remote_path: str, local: Path) -> int:
     if out.get("status") != "success":
-        raise ApiError(f"Download request failed for {remote_path}: {str(out)[:300]}")
+        raise ApiError(f"Download request failed for {remote_path}: {_redacted_dump(out)}")
     data = out.get("data", {})
     url = data.get("url")
     token = data.get("token")
@@ -657,7 +722,7 @@ def probe_backup_download(cfg: dict, state: dict | None) -> None:
                          (f"{base}/{number}", None)]:
         try:
             ans = api_get(cfg, path, params)
-            log(f"Backup probe: GET {path} answered: {json.dumps(ans)[:300]}")
+            log(f"Backup probe: GET {path} answered: {_redacted_dump(ans)}")
             if ans.get("status") == "success":
                 got = ans
                 break
@@ -666,14 +731,14 @@ def probe_backup_download(cfg: dict, state: dict | None) -> None:
     if got is None:
         try:
             ans = api_post_json(cfg, f"{base}/download", {"backup_number": number})
-            log(f"Backup probe: POST {base}/download answered: {json.dumps(ans)[:300]}")
+            log(f"Backup probe: POST {base}/download answered: {_redacted_dump(ans)}")
             if ans.get("status") == "success":
                 got = ans
         except Exception as exc:
             log(f"Backup probe: POST {base}/download failed: {str(exc)[:220]}")
     if state is not None:
         state["backup_probed"] = number
-        (SAVE_DIR / "pull_state.json").write_text(json.dumps(state, indent=2), encoding="utf-8")
+        _write_pull_state(state)
     if got is None:
         log(f"Backup probe: no route handed over backup #{number} - restore-only, as far as the API shows.")
         return
@@ -693,7 +758,7 @@ def probe_backup_download(cfg: dict, state: dict | None) -> None:
             f"as {local.name} - ready to examine.")
         if state is not None:
             state["backup_file"] = local.name
-            (SAVE_DIR / "pull_state.json").write_text(json.dumps(state, indent=2), encoding="utf-8")
+            _write_pull_state(state)
     except Exception as exc:
         log(f"Backup probe: a route answered success but the fetch failed: {exc}")
 
@@ -717,7 +782,7 @@ def watch_backups(cfg: dict, state: dict) -> bool:
     if state.get("watch_tried") == newest:
         return False
     state["watch_tried"] = newest
-    (SAVE_DIR / "pull_state.json").write_text(json.dumps(state, indent=2), encoding="utf-8")
+    _write_pull_state(state)
     root = state.get("file_root") or ""
     savedarks = f"{root}/ShooterGame/Saved/SavedArks"
     log(f"Watch mode: new game backup {newest} - trying its download once...")
@@ -738,7 +803,7 @@ def watch_backups(cfg: dict, state: dict) -> bool:
     state["direct_ok"] = True
     state["source_name"] = newest
     state["save_dir"] = savedarks
-    (SAVE_DIR / "pull_state.json").write_text(json.dumps(state, indent=2), encoding="utf-8")
+    _write_pull_state(state)
     return True
 
 
@@ -763,7 +828,7 @@ def pull_direct(cfg: dict, state: dict) -> bool:
         return False
     size = _fetch_world(cfg, f"{save_dir}/{source}")
     state["source_name"] = source
-    (SAVE_DIR / "pull_state.json").write_text(json.dumps(state, indent=2), encoding="utf-8")
+    _write_pull_state(state)
     log(f"Downloaded {source} as the world save ({size} bytes).")
     return True
 
@@ -814,7 +879,7 @@ def pull_save(cfg: dict) -> bool:
     if MAP_FILE.lower() not in [_entry_name(e).lower() for e in entries]:
         log(f"WARNING: {MAP_FILE} is not in '{save_dir}' - rediscovering next time.")
         state.pop("save_dir", None)
-        state_path.write_text(json.dumps(state, indent=2), encoding="utf-8")
+        _write_pull_state(state)
         raise ApiError(f"{MAP_FILE} missing from the folder that had it before.")
 
     ark_changed = False
@@ -829,7 +894,7 @@ def pull_save(cfg: dict) -> bool:
         log(f"Downloaded {name} ({size} bytes).")
         if name.lower() == MAP_FILE.lower():
             ark_changed = True
-    state_path.write_text(json.dumps(state, indent=2), encoding="utf-8")
+    _write_pull_state(state)
     return ark_changed
 
 
@@ -1015,7 +1080,7 @@ def write_status(ok: bool, message: str) -> None:
         "message": message,
         "at": datetime.now().astimezone().isoformat(timespec="seconds"),
     }
-    tmp = STATUS_PATH.with_suffix(".tmp")
+    tmp = STATUS_PATH.with_suffix(f".{threading.get_ident()}.tmp")
     tmp.write_text(json.dumps(payload), encoding="utf-8")
     os.replace(tmp, STATUS_PATH)
 
@@ -1030,7 +1095,7 @@ def refresh_once(cfg: dict, force: bool = False) -> None:
         if changed or force or not DATA_PATH.exists():
             log("Fresh save downloaded - rebuilding the map...")
             data = build_data()
-            tmp = DATA_PATH.with_suffix(".tmp")
+            tmp = DATA_PATH.with_suffix(f".{threading.get_ident()}.tmp")
             tmp.write_text(json.dumps(data, separators=(",", ":")), encoding="utf-8")
             os.replace(tmp, DATA_PATH)
             c = data["meta"]["counts"]
@@ -1118,15 +1183,16 @@ def console_overview(cfg: dict) -> dict:
     return {
         "ok": True,
         "version": VERSION,
-        "service": svc,
-        "gameserver": gs,
+        "service": _scrub_secrets(svc),
+        "gameserver": _scrub_secrets(gs),
         "file_root": _file_root(cfg),
         "state": _read_state(),
         "status": _read_status(),
         "day": console_day(),
         "config": {"service_id": cfg.get("service_id"),
                    "interval_min": cfg.get("interval_min"),
-                   "port": cfg.get("port")},
+                   "port": cfg.get("port"),
+                   "map_polling": map_polling_enabled()},
     }
 
 
@@ -1145,11 +1211,11 @@ def console_backups(cfg: dict) -> dict:
 
 def console_settings(cfg: dict) -> dict:
     gs = _cached("gameserver", 20, lambda: _gs(cfg))
-    result = {"ok": True, "from_gameserver": gs.get("settings")}
+    result = {"ok": True, "from_gameserver": _scrub_secrets(gs.get("settings"))}
     for key, path in [("sets", "settings/sets"), ("current", "settings")]:
         try:
             out = api_get(cfg, f"/services/{cfg['service_id']}/gameservers/{path}")
-            result[key] = out.get("data")
+            result[key] = _scrub_secrets(out.get("data"))
             if not _SHAPES_LOGGED.get(key):
                 _SHAPES_LOGGED[key] = True
                 d = result[key]
@@ -1173,7 +1239,9 @@ def console_logfile(cfg: dict, name: str) -> str:
     names = {_entry_name(e) for e in api_list_dir(cfg, directory)}
     if name not in names:
         raise ApiError("No such log file.")
-    tmp = SAVE_DIR / "_logview.tmp"
+    # Per-thread staging file: the server is threaded, and two people
+    # viewing logs at once must not interleave on one shared tmp path.
+    tmp = SAVE_DIR / f"_logview.{threading.get_ident()}.tmp"
     api_download(cfg, f"{directory}/{name}", tmp)
     data = tmp.read_bytes()
     tmp.unlink(missing_ok=True)
@@ -1207,6 +1275,20 @@ def console_control(cfg: dict, action: str) -> dict:
 # -------------------------------------------------------------- deaths ----
 DEATHS_PATH = SAVE_DIR / "deaths.json"
 _TS_RE = re.compile(r"\[(\d{4})\.(\d{2})\.(\d{2})-(\d{2})\.(\d{2})\.(\d{2})[:.](\d{3})\]")
+
+
+def _ts_from_match(tm) -> int | None:
+    """Epoch seconds from a _TS_RE match, or None when the captured
+    fields are not a real date (month 13, hour 99): one malformed
+    stamp must yield no timestamp, never an exception that stalls
+    the scanner on that file forever."""
+    if not tm:
+        return None
+    try:
+        y, mo, d, h, mi, s = (int(tm.group(i)) for i in range(1, 7))
+        return int(datetime(y, mo, d, h, mi, s, tzinfo=timezone.utc).timestamp())
+    except (ValueError, OverflowError):
+        return None
 _LVL_RE = re.compile(r"^(.*?)(?:\s+-\s+Lvl\s+(\d+))?$")
 
 
@@ -1226,7 +1308,7 @@ PARSER_VERSION = 3
 # known format) get one full re-read of every log file per sampler
 # version, tracked per file in each tracker's sampler_scanned map, so
 # a new sampler still sees the whole history exactly once.
-SAMPLER_V = 5
+SAMPLER_V = 6
 
 
 def _species_names() -> set:
@@ -1277,8 +1359,7 @@ def parse_deaths(text: str, source: str) -> list[dict]:
         ts = None
         tm = _TS_RE.search(line)
         if tm:
-            y, mo, d, h, mi, s = (int(tm.group(i)) for i in range(1, 7))
-            ts = int(datetime(y, mo, d, h, mi, s, tzinfo=timezone.utc).timestamp())
+            ts = _ts_from_match(tm)
         clean = _scrub_tail(re.sub(r"<[^>]*>", "", line))
         who = kind = species = None
         who_lvl = None
@@ -1345,7 +1426,29 @@ def parse_death_candidates(text: str, source: str) -> list[dict]:
 
 
 def _death_key(e: dict) -> tuple:
+    # Deliberately NOT by_sid/kind: every death is written in two
+    # forms (tribe + plain, sometimes SID) and the forms disagree on
+    # those fields - the plain form can even classify a player death
+    # as a tame. Including them splits verified twin pairs and
+    # double-counts (the 61-death corpus verdict rests on this key).
+    # The theoretical cost - two same-named victims killed by the
+    # same killer within one second merging - is far rarer.
     return (e.get("ts"), (e.get("who") or "").lower(), (e.get("by") or "").lower())
+
+
+_LOAD_WARNED: set = set()
+
+
+def _note_load_failure(name: str, exc: Exception) -> None:
+    """Tracker loaders fall back to an empty state when their file
+    cannot be read - but silently, a torn/locked file made the web
+    console report 'no deaths' as if that were true. Log it (once
+    per tracker per run) so the fallback is at least visible."""
+    if name in _LOAD_WARNED or isinstance(exc, FileNotFoundError):
+        return  # a missing file is just a fresh install, not a failure
+    _LOAD_WARNED.add(name)
+    log(f"Tracker load: {name} could not be read ({type(exc).__name__}: {exc}) "
+        f"- treating it as empty for now; the next scan rebuilds it.")
 
 
 def _load_deaths() -> dict:
@@ -1356,8 +1459,8 @@ def _load_deaths() -> dict:
                 data = _repair_deaths(data)
                 _save_deaths(data)
             return data
-    except Exception:
-        pass
+    except Exception as exc:
+        _note_load_failure("deaths.json", exc)
     return {"version": 1, "parser": PARSER_VERSION, "events": [], "scanned": {}}
 
 
@@ -1385,7 +1488,7 @@ def _repair_deaths(data: dict) -> dict:
     return data
 
 def _save_deaths(data: dict) -> None:
-    tmp = DEATHS_PATH.with_suffix(".tmp")
+    tmp = DEATHS_PATH.with_suffix(f".{threading.get_ident()}.tmp")
     tmp.write_text(json.dumps(data, indent=1), encoding="utf-8")
     os.replace(tmp, DEATHS_PATH)
 
@@ -1403,10 +1506,14 @@ def _absorb_deaths(data: dict, text: str, name: str) -> list[dict]:
     cands = data.setdefault("candidates", [])
     seen_raw = {c.get("raw") for c in cands}
     for c in parse_death_candidates(text, name):
-        data["candidate_count"] = data.get("candidate_count", 0) + 1
-        if c["raw"] not in seen_raw and len(cands) < 12:
+        if c["raw"] not in seen_raw:
+            # Count each distinct sampled line once: re-absorbing the
+            # same log (it grows, or a sampler re-read) must not
+            # inflate the counter away from the stored samples.
+            data["candidate_count"] = data.get("candidate_count", 0) + 1
             seen_raw.add(c["raw"])
-            cands.append(c)
+            if len(cands) < 12:
+                cands.append(c)
     return new
 
 
@@ -1420,11 +1527,7 @@ _TAME_KILL_NL_RE = re.compile(r"Your\s+(.+?)\s+\(([^)]*)\)\s+killed\s+(.+?)\s*$"
 
 
 def _line_ts(line: str):
-    tm = _TS_RE.search(line)
-    if not tm:
-        return None
-    y, mo, d, h, mi, s = (int(tm.group(i)) for i in range(1, 7))
-    return int(datetime(y, mo, d, h, mi, s, tzinfo=timezone.utc).timestamp())
+    return _ts_from_match(_TS_RE.search(line))
 
 
 def _scrub_target(s: str) -> str:
@@ -1536,13 +1639,13 @@ def _load_kills() -> dict:
         data = json.loads(KILLS_PATH.read_text(encoding="utf-8"))
         if isinstance(data, dict) and isinstance(data.get("events"), list):
             return data
-    except Exception:
-        pass
+    except Exception as exc:
+        _note_load_failure("kills.json", exc)
     return {"version": 1, "events": [], "scanned": {}}
 
 
 def _save_kills(data: dict) -> None:
-    tmp = KILLS_PATH.with_suffix(".tmp")
+    tmp = KILLS_PATH.with_suffix(f".{threading.get_ident()}.tmp")
     tmp.write_text(json.dumps(data, indent=1), encoding="utf-8")
     os.replace(tmp, KILLS_PATH)
 
@@ -1560,10 +1663,14 @@ def _absorb_kills(data: dict, text: str, name: str) -> list[dict]:
     cands = data.setdefault("candidates", [])
     seen_raw = {c.get("raw") for c in cands}
     for c in parse_kill_candidates(text, name):
-        data["candidate_count"] = data.get("candidate_count", 0) + 1
-        if c["raw"] not in seen_raw and len(cands) < 12:
+        if c["raw"] not in seen_raw:
+            # Count each distinct sampled line once: re-absorbing the
+            # same log (it grows, or a sampler re-read) must not
+            # inflate the counter away from the stored samples.
+            data["candidate_count"] = data.get("candidate_count", 0) + 1
             seen_raw.add(c["raw"])
-            cands.append(c)
+            if len(cands) < 12:
+                cands.append(c)
     return new
 
 
@@ -1670,14 +1777,25 @@ def _load_tames() -> dict:
                     data["candidates"] = [c for c in cands if c not in junk]
                     data["candidate_count"] = max(
                         0, data.get("candidate_count", 0) - len(junk))
+            # One-time cleanup: re-scans before v2.10.0 appended tame
+            # events unconditionally, so stored histories can hold
+            # exact duplicates; drop them, keeping first occurrence.
+            for r in data["records"].values():
+                evs = r.get("events")
+                if isinstance(evs, list) and len(evs) > 1:
+                    seen_ev: list = []
+                    for ev in evs:
+                        if ev not in seen_ev:
+                            seen_ev.append(ev)
+                    r["events"] = seen_ev
             return data
-    except Exception:
-        pass
+    except Exception as exc:
+        _note_load_failure("tames.json", exc)
     return {"version": 1, "records": {}, "scanned": {}}
 
 
 def _save_tames(data: dict) -> None:
-    tmp = TAMES_PATH.with_suffix(".tmp")
+    tmp = TAMES_PATH.with_suffix(f".{threading.get_ident()}.tmp")
     tmp.write_text(json.dumps(data, indent=1), encoding="utf-8")
     os.replace(tmp, TAMES_PATH)
 
@@ -1760,15 +1878,23 @@ def _absorb_tames(data: dict, text: str, name: str,
         ev_rec = {"ts": ts, "kind": e["kind"]}
         if e.get("actor"):
             ev_rec["actor"] = e["actor"]
-        r["events"].append(ev_rec)
+        # Re-scans (the growing live log, SAMPLER_V re-reads) absorb
+        # the same lines again; deaths/kills dedupe theirs, and the
+        # history list must too, or duplicates evict genuine events.
+        if ev_rec not in r["events"]:
+            r["events"].append(ev_rec)
         r["events"] = r["events"][-40:]
     cands = data.setdefault("candidates", [])
     seen_raw = {c.get("raw") for c in cands}
     for c in parse_tame_candidates(text, name):
-        data["candidate_count"] = data.get("candidate_count", 0) + 1
-        if c["raw"] not in seen_raw and len(cands) < 12:
+        if c["raw"] not in seen_raw:
+            # Count each distinct sampled line once: re-absorbing the
+            # same log (it grows, or a sampler re-read) must not
+            # inflate the counter away from the stored samples.
+            data["candidate_count"] = data.get("candidate_count", 0) + 1
             seen_raw.add(c["raw"])
-            cands.append(c)
+            if len(cands) < 12:
+                cands.append(c)
     return touched
 
 
@@ -1787,7 +1913,12 @@ def console_tames() -> dict:
     unclaimed = sum(1 for r in recs if r["status"] == "unclaimed")
     return {"ok": True, "tames": recs,
             "counts": {"total": len(recs),
-                       "living": len(recs) - dead - unclaimed,
+                       # One meaning of "living" everywhere: the
+                       # record status - out, not frozen, not dead,
+                       # not unclaimed. (The old formula included
+                       # frozen, so the four counts summed past the
+                       # total and disagreed with the Living filter.)
+                       "living": len(recs) - dead - frozen - unclaimed,
                        "frozen": frozen, "dead": dead,
                        "unclaimed": unclaimed},
             "candidates": data.get("candidates", []),
@@ -1829,13 +1960,13 @@ def _load_levels() -> dict:
         data = json.loads(LEVELS_PATH.read_text(encoding="utf-8"))
         if isinstance(data, dict) and isinstance(data.get("observations"), list):
             return data
-    except Exception:
-        pass
+    except Exception as exc:
+        _note_load_failure("levels.json", exc)
     return {"version": 1, "observations": [], "scanned": {}}
 
 
 def _save_levels(data: dict) -> None:
-    tmp = LEVELS_PATH.with_suffix(".tmp")
+    tmp = LEVELS_PATH.with_suffix(f".{threading.get_ident()}.tmp")
     tmp.write_text(json.dumps(data, indent=1), encoding="utf-8")
     os.replace(tmp, LEVELS_PATH)
 
@@ -2073,10 +2204,7 @@ def parse_presence(text: str, source: str) -> list[dict]:
     events = []
     for line in text.splitlines():
         tm = _TS_RE.search(line)
-        ts = None
-        if tm:
-            y, mo, d, h, mi, s = (int(tm.group(i)) for i in range(1, 7))
-            ts = int(datetime(y, mo, d, h, mi, s, tzinfo=timezone.utc).timestamp())
+        ts = _ts_from_match(tm)
         if "Log file open" in line:
             events.append({"ts": ts, "who": "", "action": "boot",
                            "source": source, "raw": line.strip()[:200]})
@@ -2132,13 +2260,13 @@ def _load_presence() -> dict:
                 data = _repair_presence(data)
                 _save_presence(data)
             return data
-    except Exception:
-        pass
+    except Exception as exc:
+        _note_load_failure("presence.json", exc)
     return {"version": 1, "events": [], "scanned": {}}
 
 
 def _save_presence(data: dict) -> None:
-    tmp = PRESENCE_PATH.with_suffix(".tmp")
+    tmp = PRESENCE_PATH.with_suffix(f".{threading.get_ident()}.tmp")
     tmp.write_text(json.dumps(data, indent=1), encoding="utf-8")
     os.replace(tmp, PRESENCE_PATH)
 
@@ -2232,24 +2360,32 @@ def scan_logs(cfg: dict) -> None:
             continue
         need_names = {d[0] for d in need}
         d_events = k_events = None
-        if "deaths" in need_names:
-            d_events = _absorb_deaths(deaths, text, name)
-            new_deaths.extend(d_events)
-        if "kills" in need_names:
-            k_events = _absorb_kills(kills, text, name)
-            new_kills.extend(k_events)
-        if "presence" in need_names:
-            new_presence.extend(_absorb_presence(presence, text, name))
-        if "levels" in need_names:
-            if d_events is None:
-                d_events = parse_deaths(text, name)
-            if k_events is None:
-                k_events = parse_kills(text, name)
-            _absorb_levels(levels, d_events, k_events, parse_levelups(text, name))
-        if "tames" in need_names:
-            if d_events is None:
-                d_events = parse_deaths(text, name)
-            _absorb_tames(tames, text, name, d_events)
+        try:
+            if "deaths" in need_names:
+                d_events = _absorb_deaths(deaths, text, name)
+                new_deaths.extend(d_events)
+            if "kills" in need_names:
+                k_events = _absorb_kills(kills, text, name)
+                new_kills.extend(k_events)
+            if "presence" in need_names:
+                new_presence.extend(_absorb_presence(presence, text, name))
+            if "levels" in need_names:
+                if d_events is None:
+                    d_events = parse_deaths(text, name)
+                if k_events is None:
+                    k_events = parse_kills(text, name)
+                _absorb_levels(levels, d_events, k_events, parse_levelups(text, name))
+            if "tames" in need_names:
+                if d_events is None:
+                    d_events = parse_deaths(text, name)
+                _absorb_tames(tames, text, name, d_events)
+        except Exception as exc:
+            # One poisonous file must not stall the scanner: the file
+            # is still stamped scanned below (its kept copy in
+            # save/logs stays available for research), the failure is
+            # logged loudly, and the pass moves on to the next file.
+            log(f"Logs: absorb failed for {name} ({type(exc).__name__}: {exc}) "
+                f"- skipping its remaining trackers this pass.")
         for dname, ddata, dsave in need:
             ddata["scanned"][name] = fp
             if sampler.get(dname):
@@ -2387,7 +2523,7 @@ def _write_json_retry(path: Path, obj) -> None:
     I-001 lesson); falls back to writing in place rather than
     losing the save."""
     text = json.dumps(obj, indent=1)
-    tmp = path.with_suffix(".tmp")
+    tmp = path.with_suffix(f".{threading.get_ident()}.tmp")
     last = None
     for delay in (0.0, 0.15, 0.4, 1.0):
         try:
@@ -2398,7 +2534,11 @@ def _write_json_retry(path: Path, obj) -> None:
             return
         except Exception as exc:
             last = exc
-    path.write_text(text, encoding="utf-8")
+    try:
+        path.write_text(text, encoding="utf-8")
+    except Exception:
+        raise ApiError(f"Could not save {path.name} - the file stayed "
+                       f"locked through every retry (last error: {last}).")
 
 
 def _player_show() -> dict:
@@ -2487,11 +2627,22 @@ def console_names() -> dict:
     return {"ok": True, "groups": out}
 
 
+_NAMES_LOCK = threading.Lock()
+
+
 def save_name_group(keys: list, nickname: str, show: bool) -> dict:
     """Set one group's nickname (blank clears it) and tab flag for
     every raw key in the group. Nicknames live in the same
     player_names.json the console has always used; flags in
-    player_show.json. Returns the fresh console_names()."""
+    player_show.json. Returns the fresh console_names().
+    The whole read-modify-write runs under a lock: the web console
+    and the desktop window can save at the same moment, and unlocked
+    they would silently lose one of the two updates."""
+    with _NAMES_LOCK:
+        return _save_name_group_locked(keys, nickname, show)
+
+
+def _save_name_group_locked(keys: list, nickname: str, show: bool) -> dict:
     keys = [str(k) for k in (keys or []) if str(k).strip()]
     if not keys:
         raise ApiError("No identity keys given.")
@@ -2786,6 +2937,16 @@ def _p_id(p: dict, key: str = "account_id") -> str:
     return v
 
 
+def _p_qname(p: dict, key: str) -> str:
+    """A player/tribe name as a quoted RCON argument: character names
+    with spaces are normal in ARK, and unquoted the server reads only
+    the first word as the name and the rest as something else."""
+    v = _p_str(p, key, maxlen=80)
+    if '"' in v:
+        raise RconError(f"Invalid value: {key}.")
+    return f'"{v}"'
+
+
 def _p_pid(p: dict, key: str = "player_id") -> str:
     v = _p_str(p, key, maxlen=12)
     if not re.fullmatch(r"\d{1,12}", v):
@@ -2881,13 +3042,11 @@ def rcon_action(cfg: dict, p: dict) -> dict:
     elif action == "chat_to_id":
         commands = [f'ServerChatTo "{_p_id(p)}" {_p_str(p, "message", 400)}']
     elif action == "chat_to_name":
-        commands = [f"ServerChatToPlayer {_p_str(p, 'name', 80)} "
+        commands = [f"ServerChatToPlayer {_p_qname(p, 'name')} "
                     f"{_p_str(p, 'message', 400)}"]
     elif action == "rename_player":
-        cur = _p_str(p, "name", 80)
-        if '"' in cur:
-            raise RconError("Invalid current name.")
-        commands = [f'RenamePlayer "{cur}" {_p_str(p, "new_name", 80)}']
+        commands = [f"RenamePlayer {_p_qname(p, 'name')} "
+                    f"{_p_qname(p, 'new_name')}"]
     # ---- player, PlayerID family (in-game UE4 ID)
     elif action == "give_item":
         pid = _p_pid(p)
@@ -3146,12 +3305,31 @@ def start_server(cfg: dict) -> ThreadingHTTPServer:
 
 _BACKEND_LOCK = threading.Lock()
 
+# World-save (map) polling switch, flipped by the desktop window's
+# toggle and remembered in the GUI's settings file. On Xbox services
+# Nitrado never hands over the save, so polling for it is pure retry
+# noise; turning it off skips refresh_once (the save pull + map
+# build) while the log scan - deaths, tames, players - keeps running.
+_MAP_POLL: dict = {"enabled": True}
+
+
+def map_polling_enabled() -> bool:
+    return bool(_MAP_POLL["enabled"])
+
+
+def set_map_polling(enabled: bool) -> None:
+    _MAP_POLL["enabled"] = bool(enabled)
+    log(f"Map polling {'enabled' if enabled else 'disabled'} "
+        f"(world-save pull {'will run' if enabled else 'skipped'}; "
+        f"log scanning continues).")
+
 
 def backend_cycle(cfg: dict) -> None:
     """One refresh + log scan, serialized so the GUI's Refresh Now
     button and the timed loop never run at the same time."""
     with _BACKEND_LOCK:
-        refresh_once(cfg)
+        if map_polling_enabled():
+            refresh_once(cfg)
         _scan_logs_quietly(cfg)
 
 
@@ -3160,7 +3338,8 @@ def run_backend(cfg: dict, stop: threading.Event, interval: int) -> None:
     interval until the stop event is set (the terminal path passes an
     event that never fires and relies on Ctrl+C)."""
     with _BACKEND_LOCK:
-        refresh_once(cfg, force=True)
+        if map_polling_enabled():
+            refresh_once(cfg, force=True)
         _scan_logs_quietly(cfg)
     while not stop.wait(interval):
         backend_cycle(cfg)

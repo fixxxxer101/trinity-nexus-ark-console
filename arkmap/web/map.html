@@ -138,10 +138,10 @@ function buildLayers() {
   });
 
   DATA.bases.forEach(function (b) {
-    var icon = L.divIcon({ className: "", html: '<div class="baseicon">🏠<span>' + b.n + "</span></div>", iconSize: [30, 30], iconAnchor: [15, 15] });
+    var icon = L.divIcon({ className: "", html: '<div class="baseicon">🏠<span>' + esc(b.n) + "</span></div>", iconSize: [30, 30], iconAnchor: [15, 15] });
     var m = L.marker(toLL(b.lat, b.lon), { icon: icon });
-    m.bindPopup('<div class="pop"><div class="nm">' + esc(b.t) + '</div>' + b.n + " structures<br>" +
-      esc(b.kinds.join(", ")) + "<br>" + coordsLine(b.lat, b.lon) + "</div>");
+    m.bindPopup('<div class="pop"><div class="nm">' + esc(b.t) + '</div>' + esc(b.n) + " structures<br>" +
+      esc((b.kinds || []).join(", ")) + "<br>" + coordsLine(b.lat, b.lon) + "</div>");
     gBases.addLayer(m);
   });
 
@@ -160,7 +160,7 @@ function refreshSpeciesOptions() {
   if (!DATA) return;
   var sel = document.getElementById("wildSpecies");
   var current = sel.value;
-  var seen = {};
+  var seen = Object.create(null);
   DATA.wilds.forEach(function (w) { seen[w.c] = true; });
   var names = Object.keys(seen).sort();
   sel.innerHTML = '<option value="">All species</option>' + names.map(function (n) { return '<option value="' + esc(n) + '">' + esc(n) + "</option>"; }).join("");
@@ -176,6 +176,13 @@ function fmtTime(iso) {
 function loadData() {
   fetch("data.json?_=" + Date.now()).then(function (r) { if (!r.ok) throw new Error("no data yet"); return r.json(); })
     .then(function (d) {
+      /* Tolerate older/partial data.json shapes: default anything
+         missing instead of throwing and masking it as "no data yet". */
+      d = d || {};
+      d.meta = d.meta || {};
+      d.meta.counts = d.meta.counts || {};
+      ["players", "tames", "bases", "wilds"].forEach(function (k) { if (!Array.isArray(d[k])) d[k] = []; });
+      ["players", "tames", "cryo", "wilds", "bases"].forEach(function (k) { if (d.meta.counts[k] == null) d.meta.counts[k] = 0; });
       var changed = !DATA || d.meta.updated !== lastUpdated;
       DATA = d; lastUpdated = d.meta.updated;
       var c = d.meta.counts;
@@ -186,8 +193,13 @@ function loadData() {
       if (changed) { refreshSpeciesOptions(); buildLayers(); }
       hideSplash();
     })
-    .catch(function () {
-      document.getElementById("status").textContent = "Waiting for the first update from the server…";
+    .catch(function (err) {
+      var st = document.getElementById("status");
+      if (err && err.message === "no data yet") {
+        st.textContent = "Waiting for the first update from the server…";
+      } else {
+        st.textContent = "Could not load map data: " + (err && err.message ? err.message : err);
+      }
       hideSplash();
     });
   fetch("status.json?_=" + Date.now()).then(function (r) { return r.json(); })

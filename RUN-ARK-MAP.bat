@@ -23,8 +23,11 @@ if not errorlevel 1 set PY=python
 if not defined PY goto nopython
 :havpy
 
-rem --- build the app environment once; skip it once it exists
-if exist ".venv\Scripts\pythonw.exe" goto venvok
+rem --- build the app environment once; skip it only when setup
+rem --- actually finished (pythonw.exe exists from the moment the
+rem --- venv is created, before pip installs anything - keying the
+rem --- skip on it alone stranded failed first setups forever)
+if exist ".venv\Scripts\pythonw.exe" if exist ".venv\.setup-complete" goto venvok
 echo.
 echo First run on this PC - building the app environment.
 echo This happens once. Later runs skip straight to the console.

@@ -294,6 +294,7 @@
         <select class="ctl" id="deathSort">
           <option value="new">Newest first</option>
           <option value="old">Oldest first</option>
+          <option value="custom" disabled hidden>Custom sort</option>
         </select>
       </div>
       <div id="deathPlayers" style="margin-top:12px;display:flex;flex-wrap:wrap;gap:8px"></div>
@@ -321,7 +322,7 @@
       <div class="hs">Every tame the server's logs have ever named — claimed, frozen, released, or lost</div>
     </div>
     <div class="grid cards">
-      <div class="panel stat"><div class="lab">Living</div><div class="val" id="tmLiving">—</div><div class="sub">no death on record (frozen included)</div></div>
+      <div class="panel stat"><div class="lab">Living</div><div class="val" id="tmLiving">—</div><div class="sub">out of cryo, not dead or unclaimed</div></div>
       <div class="panel stat"><div class="lab">Frozen</div><div class="val" id="tmFrozen">—</div><div class="sub">in cryo right now</div></div>
       <div class="panel stat"><div class="lab">Dead</div><div class="val" id="tmDead">—</div><div class="sub">lost, per the logs</div></div>
     </div>
@@ -647,8 +648,9 @@ function human(n) {
 function fmtTs(sec) {
   if (!sec) return "—";
   var d = new Date(Number(sec) * 1000);
-  return isNaN(d) ? String(sec) : d.toLocaleString([], { month: "short", day: "numeric", year: "numeric", hour: "numeric", minute: "2-digit" });
+  return isNaN(d) ? esc(sec) : d.toLocaleString([], { month: "short", day: "numeric", year: "numeric", hour: "numeric", minute: "2-digit" });
 }
+function num(v) { var n = Number(v); return isNaN(n) ? 0 : n; }
 function api(path, opts) {
   return fetch(path, opts).then(function (r) {
     return r.json().catch(function () { return { ok: false, error: "Bad answer (HTTP " + r.status + ")" }; });
@@ -722,6 +724,9 @@ function loadOverview() {
   });
 }
 function renderOverview() {
+  var errBar = $("#ovError");
+  errBar.style.display = "none";
+  errBar.textContent = "";
   var gs = OV.gameserver || {}, q = gs.query || {}, svc = OV.service || {}, det = svc.details || {};
   var name = q.server_name || det.name || "ARK Server";
   $("#srvName").textContent = name;
@@ -809,19 +814,33 @@ document.querySelectorAll("[data-control]").forEach(function (b) {
     $("#modalWrap").classList.add("show");
   });
 });
-$("#modalCancel").addEventListener("click", function () { $("#modalWrap").classList.remove("show"); pendingAction = null; });
-$("#modalConfirm").addEventListener("click", function () {
-  var action = pendingAction;
+/* One handler pair for the shared confirm modal: it dispatches to
+   whichever flow opened it — server control (pendingAction) or RCON
+   (rcPending, declared further down; var hoisting makes it safe to
+   reference here). Both pendings are always cleared together. */
+$("#modalCancel").addEventListener("click", function () {
   $("#modalWrap").classList.remove("show");
   pendingAction = null;
-  if (!action) return;
-  toast("Sending " + action + " to Nitrado…");
-  api("/api/control", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: action }) })
-    .then(function (r) {
-      toast("Server " + action + " accepted by Nitrado (" + ((r.answer && r.answer.status) || "success") + "). Status refreshes shortly.");
-      setTimeout(loadOverview, 3000);
-    })
-    .catch(function (e) { toast("Control failed: " + e.message, true); });
+  rcPending = null;
+});
+$("#modalConfirm").addEventListener("click", function () {
+  $("#modalWrap").classList.remove("show");
+  if (pendingAction) {
+    var action = pendingAction;
+    pendingAction = null;
+    rcPending = null;
+    toast("Sending " + action + " to Nitrado…");
+    api("/api/control", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: action }) })
+      .then(function (r) {
+        toast("Server " + action + " accepted by Nitrado (" + ((r.answer && r.answer.status) || "success") + "). Status refreshes shortly.");
+        setTimeout(loadOverview, 3000);
+      })
+      .catch(function (e) { toast("Control failed: " + e.message, true); });
+  } else if (rcPending) {
+    var fn = rcPending;
+    rcPending = null;
+    fn();
+  }
 });
 
 /* ---------------- players ---------------- */
@@ -864,7 +883,7 @@ function renderPlayers() {
     $("#plActivity").innerHTML = players.length ? players.map(function (p) {
       var total = (p.total_seconds || 0) + (p.online && p.since ? now - p.since : 0);
       return "<tr><td><b>" + esc(p.name) + "</b></td>" +
-        "<td>" + (LEVELS[p.name] ? "Lvl " + LEVELS[p.name].current : '<span class="muted">—</span>') + "</td>" +
+        "<td>" + (LEVELS[p.name] ? "Lvl " + num(LEVELS[p.name].current) : '<span class="muted">—</span>') + "</td>" +
         "<td>" + (p.online ? '<span class="badge incr">online</span>' : '<span class="badge plain">offline</span>') + "</td>" +
         "<td>" + fmtWhen(p.last_on) + "</td><td>" + (p.online ? '<span class="muted">still on</span>' : fmtWhen(p.last_off)) + "</td>" +
         "<td>" + (p.sessions || 0) + "</td><td>" + fmtDur(total) + "</td></tr>";
@@ -876,11 +895,11 @@ function renderPlayers() {
     }).join("") : '<span class="muted">No logins or logouts recorded yet.</span>';
     var lvPlayers = lv.players || [];
     $("#plLevels").innerHTML = lvPlayers.length ? lvPlayers.map(function (p) {
-      return '<div style="margin-bottom:12px"><div class="orb" style="font-weight:700;letter-spacing:1px">' + esc(p.name) + " — level " + p.current + "</div>" +
+      return '<div style="margin-bottom:12px"><div class="orb" style="font-weight:700;letter-spacing:1px">' + esc(p.name) + " — level " + num(p.current) + "</div>" +
         '<div style="margin-top:6px">' + p.history.map(function (h) {
-          return '<span class="badge plain" style="margin:0 6px 6px 0">Lvl ' + h.level + " · " + (h.ts ? new Date(h.ts * 1000).toLocaleDateString([], { month: "short", day: "numeric" }) : "") + "</span>";
+          return '<span class="badge plain" style="margin:0 6px 6px 0">Lvl ' + num(h.level) + " · " + (h.ts ? new Date(h.ts * 1000).toLocaleDateString([], { month: "short", day: "numeric" }) : "") + "</span>";
         }).join("") + "</div>" +
-        '<div class="muted">First seen at each level, from ' + p.sightings + " level sighting" + (p.sightings === 1 ? "" : "s") + " in the logs (death and level-up lines record the player's current level).</div></div>";
+        '<div class="muted">First seen at each level, from ' + num(p.sightings) + " level sighting" + (num(p.sightings) === 1 ? "" : "s") + " in the logs (death and level-up lines record the player's current level).</div></div>";
     }).join("") : '<span class="muted">No level sightings yet — levels are read from the levels written into death, kill, and level-up log lines.</span>';
     renderPlayerTabs();
     renderAggregates();
@@ -955,14 +974,17 @@ function renderPlayerTab() {
   var lp = ((PLV && PLV.players) || []).filter(function (x) { return x.name === name; })[0];
   var myDeaths = PDEATHS.filter(function (e) { return e.kind === "player" && (e.player || e.who) === name; });
   var total = (p.total_seconds || 0) + (p.online && p.since ? now - p.since : 0);
-  var cur = lp ? lp.current : 0;
+  var cur = lp ? num(lp.current) : 0;
   var proven = {};
   (lp ? lp.history : []).forEach(function (h) { proven[h.level] = h.ts; });
   var ladder = "";
-  for (var L = 1; L <= cur; L++) {
+  var LADDER_CAP = 200;
+  var ladderShown = Math.min(cur, LADDER_CAP);
+  for (var L = 1; L <= ladderShown; L++) {
     if (proven[L]) ladder += '<span class="badge incr" style="margin:0 5px 6px 0" title="First seen ' + fmtWhen(proven[L]) + '">Lvl ' + L + " · " + new Date(proven[L] * 1000).toLocaleDateString([], { month: "short", day: "numeric" }) + "</span>";
     else ladder += '<span class="badge plain" style="margin:0 5px 6px 0">Lvl ' + L + "</span>";
   }
+  if (cur > LADDER_CAP) ladder += '<span class="muted">+' + (cur - LADDER_CAP) + " more levels</span>";
   var myAct = (PPR.activity || []).filter(function (e) { return e.who === name; }).slice(0, 10);
   var tribeTotal = (PPR.players || []).reduce(function (s, x) {
     return s + (x.total_seconds || 0) + (x.online && x.since ? now - x.since : 0);
@@ -974,7 +996,7 @@ function renderPlayerTab() {
   var topKiller = countBy(myDeaths, function (e) { return killerType(e.by); })[0];
   $("#ptabPlayer").innerHTML =
     '<div class="grid cards">' +
-    '<div class="panel stat"><div class="lab">Level</div><div class="val">' + (cur || "—") + '</div><div class="sub">' + (lp ? lp.sightings + " sightings in the logs" : "no sightings yet") + '</div></div>' +
+    '<div class="panel stat"><div class="lab">Level</div><div class="val">' + (cur || "—") + '</div><div class="sub">' + (lp ? num(lp.sightings) + " sightings in the logs" : "no sightings yet") + '</div></div>' +
     '<div class="panel stat"><div class="lab">Time Played</div><div class="val">' + fmtDur(total) + '</div><div class="sub">' + (p.sessions || 0) + ' sessions</div></div>' +
     '<div class="panel stat"><div class="lab">Deaths</div><div class="val">' + myDeaths.length + '</div><div class="sub">player deaths on record</div></div>' +
     '<div class="panel stat"><div class="lab">Average Session</div><div class="val">' + (p.sessions ? fmtDur(avgSess) : "—") + '</div><div class="sub">per login</div></div>' +
@@ -1026,7 +1048,7 @@ function killerType(by) {
   return s || "Unknown / environment";
 }
 function countBy(list, fn) {
-  var out = {};
+  var out = Object.create(null);
   list.forEach(function (e) { var k = fn(e); out[k] = (out[k] || 0) + 1; });
   return Object.keys(out).map(function (k) { return { label: k, value: out[k] }; })
     .sort(function (a, b) { return b.value - a.value || (a.label < b.label ? -1 : 1); });
@@ -1144,9 +1166,9 @@ function renderDeaths() {
   var cap = sorted.slice(0, 300);
   $("#deathTable").innerHTML = cap.length ? cap.map(function (e) {
     return "<tr><td>" + fmtWhen(e.ts) + "</td>" +
-      "<td><b>" + esc(e.who) + "</b>" + (e.who_lvl ? ' <span class="muted">Lvl ' + e.who_lvl + "</span>" : "") +
+      "<td><b>" + esc(e.who) + "</b>" + (e.who_lvl ? ' <span class="muted">Lvl ' + num(e.who_lvl) + "</span>" : "") +
       (e.kind === "player" ? ' <span class="badge incr">player</span>' : ' <span class="badge plain">tame' + (e.species ? " · " + esc(e.species) : "") + "</span>") + "</td>" +
-      "<td>" + (e.by ? esc(e.by) + (e.by_lvl ? ' <span class="muted">Lvl ' + e.by_lvl + "</span>" : "") : '<span class="muted">unknown</span>') + "</td>" +
+      "<td>" + (e.by ? esc(e.by) + (e.by_lvl ? ' <span class="muted">Lvl ' + num(e.by_lvl) + "</span>" : "") : '<span class="muted">unknown</span>') + "</td>" +
       '<td class="muted" title="' + esc(e.raw || "") + '">' + esc(e.source || "") + "</td></tr>";
   }).join("") : '<tr><td colspan="4" class="muted">No deaths match.</td></tr>';
   $("#deathShowing").textContent = "Showing " + cap.length + " of " + sorted.length + (tamesMode ? " tame losses" : " deaths") + (deathPlayer && !tamesMode ? " for " + deathPlayer : "") + ".";
@@ -1163,6 +1185,7 @@ function loadDeaths() {
 }
 $("#deathSearch").addEventListener("input", renderDeaths);
 $("#deathSort").addEventListener("change", function () {
+  if (this.value === "custom") return;
   deathSortKey = "ts";
   deathSortDir = this.value === "old" ? 1 : -1;
   renderDeaths();
@@ -1172,6 +1195,9 @@ document.querySelectorAll("#view-deaths th.sortable").forEach(function (th) {
     var k = th.getAttribute("data-sk");
     if (deathSortKey === k) { deathSortDir = -deathSortDir; }
     else { deathSortKey = k; deathSortDir = k === "ts" ? -1 : 1; }
+    /* Keep the select honest about the actual order: it mirrors the
+       ts sorts, and shows "Custom sort" for any other column. */
+    $("#deathSort").value = deathSortKey === "ts" ? (deathSortDir === 1 ? "old" : "new") : "custom";
     renderDeaths();
   });
 });
@@ -1753,11 +1779,8 @@ function rcConfirm(title, text, fn) {
   $("#modalConfirm").textContent = "Do it";
   $("#modalWrap").classList.add("show");
 }
-$("#modalConfirm").addEventListener("click", function () {
-  var fn = rcPending; rcPending = null;
-  if (fn) fn();
-});
-$("#modalCancel").addEventListener("click", function () { rcPending = null; });
+/* The modal Confirm/Cancel handlers live in the control section
+   above — they dispatch here via rcPending. */
 document.querySelectorAll("[data-rc]").forEach(function (b) {
   b.addEventListener("click", function () {
     var action = b.getAttribute("data-rc");

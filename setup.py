@@ -24,7 +24,14 @@ def main() -> int:
         return 1
     if not venv_python().exists():
         print("Creating the app environment...")
-        venv.create(VENV, with_pip=True)
+        try:
+            venv.create(VENV, with_pip=True)
+        except Exception as exc:
+            print(f"ERROR: the app environment could not be created ({exc}).")
+            print("The usual cause is a Python install without venv support -")
+            print("reinstall Python from python.org with the default options,")
+            print("then run RUN-ARK-MAP.bat again.")
+            return 1
     py = str(venv_python())
     print("Installing the ARK save reader (arkparser)...")
     r = subprocess.run([py, "-m", "pip", "install", "--upgrade", "arkparser"])
@@ -37,6 +44,12 @@ def main() -> int:
         print("if it keeps failing, note what this window says and check")
         print("the troubleshooting section of the README.")
         return 1
+    # Completion marker: the launcher skips setup only when this
+    # file exists. Keying the skip on pythonw.exe alone was a trap -
+    # the venv creates that file BEFORE pip runs, so a first setup
+    # that failed at pip was never retried.
+    (VENV / ".setup-complete").write_text(
+        "setup finished\n", encoding="utf-8")
     print()
     print("Setup complete. From now on, just double-click RUN-ARK-MAP.bat")
     print("The first start will ask for your Nitrado API token and service ID.")

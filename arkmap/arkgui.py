@@ -49,6 +49,31 @@ HERE = Path(__file__).resolve().parent
 ICO_PATH = HERE.parent / "ArkMap.ico"
 EMBLEM_PATH = HERE / "emblem.png"
 
+# The window's own remembered settings (size/position, last tab,
+# map-polling toggle) - private per-PC state in the app's save/
+# folder, never part of the shipped software, never touched by the
+# updater (which leaves save/ alone by design).
+GUI_SETTINGS_PATH = arkmap.SAVE_DIR / "gui_settings.json"
+
+
+def _load_gui_settings() -> dict:
+    try:
+        data = arkmap.json.loads(
+            GUI_SETTINGS_PATH.read_text(encoding="utf-8"))
+        if isinstance(data, dict):
+            return data
+    except Exception:
+        pass
+    return {}
+
+
+def _save_gui_settings(data: dict) -> None:
+    try:
+        GUI_SETTINGS_PATH.parent.mkdir(parents=True, exist_ok=True)
+        arkmap._write_json_retry(GUI_SETTINGS_PATH, data)
+    except Exception as exc:
+        arkmap.log(f"GUI: could not save window settings ({exc})")
+
 
 def _fix_stdio() -> None:
     """pythonw has no console; give print() somewhere harmless to go."""
@@ -339,6 +364,16 @@ class ConsoleGui:
         self._names_inner = None
         self._names_status_label = None
         self._last_stats: dict = {}
+        # Remembered window settings: applied before the build so
+        # the map-polling flag is set before the backend starts.
+        self.settings = _load_gui_settings()
+        arkmap.set_map_polling(bool(self.settings.get("map_polling", True)))
+        saved_tab = self.settings.get("tab")
+        if isinstance(saved_tab, str) and saved_tab:
+            self._tab = saved_tab
+        self._wrap_labels: list = []
+        self._player_inners: dict = {}
+        self.map_poll_var = None
         self._build()
 
     # ---------------------------------------------------------- build --
@@ -348,8 +383,18 @@ class ConsoleGui:
         self.root = root
         root.title(f"Trinity Nexus ARK Console v{arkmap.VERSION}")
         root.configure(bg=BG)
-        root.geometry("600x760")
-        root.minsize(520, 640)
+        # Remembered size/position when there is one; otherwise a
+        # default that never exceeds the screen it opens on.
+        geo = self.settings.get("geometry")
+        if isinstance(geo, str) and re.fullmatch(
+                r"\d+x\d+([+-]\d+){2}", geo):
+            root.geometry(geo)
+        else:
+            w = min(640, root.winfo_screenwidth() - 40)
+            h = min(800, root.winfo_screenheight() - 60)
+            root.geometry(f"{w}x{h}")
+        root.minsize(520, 600)
+        root.bind("<Configure>", self._on_root_configure)
         if sys.platform == "win32" and ICO_PATH.exists():
             try:
                 root.iconbitmap(default=str(ICO_PATH))
@@ -398,16 +443,73 @@ class ConsoleGui:
         self.refresh_btn = btn("Refresh Now", self.refresh_now)
         self.update_btn = btn("Update", self.check_for_updates)
         btn("Hide to Tray", self.hide)
+        # Map polling toggle: on Xbox services Nitrado never hands
+        # over the world save, so the save pull is pure retry noise -
+        # this stops it (the log scan behind the trackers keeps
+        # running). Remembered across launches.
+        self.map_poll_var = tk.BooleanVar(
+            value=arkmap.map_polling_enabled())
+        tk.Checkbutton(btns, text="Map polling", variable=self.map_poll_var,
+                       command=self._on_map_poll_toggle,
+                       bg=BG, fg=TEXT, activebackground=BG,
+                       activeforeground=TEXT, selectcolor=PANEL,
+                       font=("Segoe UI", 10), cursor="hand2").pack(
+                           side="left", padx=(4, 0))
 
-        tk.Label(root,
-                 text="Minimizing or closing this window sends the console "
-                      "to the system tray - it keeps running. Double-click "
-                      "the tray icon to bring it back; right-click it to quit.",
-                 bg=BG, fg=MUTED, font=("Segoe UI", 9), wraplength=540,
-                 justify="left").pack(fill="x", padx=16, pady=(8, 12))
+        help_label = tk.Label(
+            root,
+            text="Minimizing or closing this window sends the console "
+                 "to the system tray - it keeps running. Double-click "
+                 "the tray icon to bring it back; right-click it to quit. "
+                 "Map polling pulls the world save for the map; on Xbox "
+                 "Nitrado never releases it, so it can be switched off - "
+                 "deaths, tames and players keep tracking either way.",
+            bg=BG, fg=MUTED, font=("Segoe UI", 9), wraplength=540,
+            justify="left")
+        help_label.pack(fill="x", padx=16, pady=(8, 12))
+        self._track_wrap(help_label, 32)
 
         root.protocol("WM_DELETE_WINDOW", self._on_close)
         root.bind("<Unmap>", self._on_unmap)
+
+    # ------------------------------------------- remembered state --
+    def _track_wrap(self, label, padding: int) -> None:
+        """Labels with a fixed wraplength clip or strand text when
+        the window resizes; track them and re-wrap to the live width."""
+        self._wrap_labels.append((label, padding))
+
+    def _on_root_configure(self, event=None) -> None:
+        if event is not None and event.widget is not self.root:
+            return
+        try:
+            w = self.root.winfo_width()
+        except Exception:
+            return
+        if w <= 1:
+            return
+        for label, padding in self._wrap_labels:
+            try:
+                label.configure(wraplength=max(220, w - padding))
+            except Exception:
+                pass
+
+    def _persist_settings(self) -> None:
+        try:
+            if self.root.state() != "withdrawn":
+                self.settings["geometry"] = self.root.geometry()
+        except Exception:
+            pass
+        self.settings["tab"] = self._tab
+        self.settings["map_polling"] = arkmap.map_polling_enabled()
+        _save_gui_settings(self.settings)
+
+    def _on_map_poll_toggle(self) -> None:
+        arkmap.set_map_polling(bool(self.map_poll_var.get()))
+        self._persist_settings()
+        if arkmap.map_polling_enabled():
+            # Turning it back on: check for a save right away rather
+            # than waiting for the next timed cycle.
+            self.refresh_now()
 
     def _build_all_tab(self, parent) -> None:
         tk = self.tk
@@ -420,16 +522,18 @@ class ConsoleGui:
                                      font=("Segoe UI", 16, "bold"))
         self.status_label.pack(anchor="w", padx=14, pady=(12, 2))
         self.v_names = tk.StringVar(value="")
-        tk.Label(panel, textvariable=self.v_names, bg=PANEL, fg=MUTED,
-                 font=("Segoe UI", 9), wraplength=520,
-                 justify="left").pack(anchor="w", padx=14, pady=(0, 10))
+        names_label = tk.Label(panel, textvariable=self.v_names, bg=PANEL,
+                               fg=MUTED, font=("Segoe UI", 9),
+                               wraplength=520, justify="left")
+        names_label.pack(anchor="w", padx=14, pady=(0, 10))
+        self._track_wrap(names_label, 60)
 
         agg = tk.Frame(parent, bg=PANEL, highlightbackground=BORDER,
                        highlightthickness=1)
         agg.pack(fill="x", pady=(10, 0))
         tk.Label(agg, text="SQUAD AVERAGES & TOTALS", bg=PANEL, fg=MUTED,
                  font=("Segoe UI", 9, "bold")).grid(
-                     row=0, column=0, columnspan=9, sticky="w", padx=14,
+                     row=0, column=0, columnspan=3, sticky="w", padx=14,
                      pady=(10, 2))
         self.agg = {}
         specs = [("avg_level", "Average level"),
@@ -441,16 +545,22 @@ class ConsoleGui:
                  ("total_sessions", "Total sessions"),
                  ("avg_session", "Average session"),
                  ("deaths_per_hour", "Deaths per hour")]
+        # Three across, three down: nine-across needed ~1100 px and
+        # clipped the right-hand stats at window size - and the grid
+        # could not shrink them back on smaller windows either.
         for i, (key, label) in enumerate(specs):
+            row, col = 1 + (i // 3) * 2, i % 3
             var = tk.StringVar(value="—")
             self.agg[key] = var
             tk.Label(agg, textvariable=var, bg=PANEL, fg=TEXT,
                      font=("Segoe UI", 14, "bold")).grid(
-                         row=1, column=i, sticky="w", padx=14)
+                         row=row, column=col, sticky="w", padx=14)
             tk.Label(agg, text=label, bg=PANEL, fg=MUTED,
                      font=("Segoe UI", 9)).grid(
-                         row=2, column=i, sticky="w", padx=14, pady=(0, 10))
-            agg.columnconfigure(i, weight=1)
+                         row=row + 1, column=col, sticky="w", padx=14,
+                         pady=(0, 8))
+        for c in range(3):
+            agg.columnconfigure(c, weight=1)
 
         rows = tk.Frame(parent, bg=BG)
         rows.pack(fill="x", pady=(12, 0))
@@ -475,16 +585,24 @@ class ConsoleGui:
     # ----------------------------------------------------------- tabs --
     def _rebuild_tabbar(self, names: list) -> None:
         tk = self.tk
-        for b in self._tab_buttons.values():
-            b.destroy()
+        for child in self.tabbar.winfo_children():
+            child.destroy()
         self._tab_buttons = {}
         self._tab_names = list(names)
         keys = ["all"] + list(names) + ["names", "terminal"]
         if self._tab not in keys:
             self._tab = "all"
-        for key in keys:
+        # Flow the buttons onto fresh rows instead of one endless
+        # strip: a single row runs off the right edge of the window
+        # once there are several player tabs, and the tabs past the
+        # edge are simply lost. Four per row fits the min window.
+        row_frame = None
+        for i, key in enumerate(keys):
+            if i % 4 == 0:
+                row_frame = tk.Frame(self.tabbar, bg=BG)
+                row_frame.pack(fill="x", pady=(0, 6) if i else 0)
             label = {"all": "All Players", "names": "Names", "terminal": "Terminal"}.get(key, key)
-            b = tk.Button(self.tabbar, text=label,
+            b = tk.Button(row_frame, text=label,
                           command=lambda k=key: self._select_tab(k),
                           bg=TAB_ON if key == self._tab else PANEL,
                           fg=TEXT, activebackground="#1e3a32",
@@ -497,6 +615,8 @@ class ConsoleGui:
 
     def _select_tab(self, key: str) -> None:
         self._tab = key
+        self.settings["tab"] = key
+        _save_gui_settings(self.settings)
         for k, b in self._tab_buttons.items():
             b.configure(bg=TAB_ON if k == key else PANEL)
         self.all_frame.pack_forget()
@@ -518,10 +638,33 @@ class ConsoleGui:
         else:
             frame = self._player_frames.get(key)
             if frame is None:
-                frame = self.tk.Frame(self.content, bg=BG)
+                frame, inner = self._make_scroll_tab()
                 self._player_frames[key] = frame
+                self._player_inners[key] = inner
             frame.pack(fill="both", expand=True)
             self._render_player_tab(key)
+
+    def _make_scroll_tab(self):
+        """A tab page that scrolls vertically (same pattern as the
+        Names tab): a player page is taller than the content area on
+        smaller windows, and without scrolling its bottom sections
+        are simply unreachable."""
+        tk = self.tk
+        frame = tk.Frame(self.content, bg=BG)
+        canvas = tk.Canvas(frame, bg=BG, highlightthickness=0)
+        scroll = tk.Scrollbar(frame, orient="vertical",
+                              command=canvas.yview)
+        inner = tk.Frame(canvas, bg=BG)
+        win = canvas.create_window((0, 0), window=inner, anchor="nw")
+        inner.bind("<Configure>",
+                   lambda e: canvas.configure(
+                       scrollregion=canvas.bbox("all")))
+        canvas.bind("<Configure>",
+                    lambda e: canvas.itemconfigure(win, width=e.width))
+        canvas.configure(yscrollcommand=scroll.set)
+        scroll.pack(side="right", fill="y")
+        canvas.pack(side="left", fill="both", expand=True)
+        return frame, inner
 
     # ---------------------------------------------------------- names --
     def _build_names(self) -> None:
@@ -529,14 +672,16 @@ class ConsoleGui:
             return
         tk = self.tk
         frame = tk.Frame(self.content, bg=BG)
-        tk.Label(frame,
-                 text="Every username the console has detected in the "
-                      "server logs. Give an account a nickname, and "
-                      "choose who gets their own player tab. Everyone "
-                      "stays tracked either way, and All Players always "
-                      "includes everyone.",
-                 bg=BG, fg=MUTED, font=("Segoe UI", 9), wraplength=540,
-                 justify="left").pack(fill="x", pady=(0, 6))
+        intro = tk.Label(frame,
+                         text="Every username the console has detected in the "
+                              "server logs. Give an account a nickname, and "
+                              "choose who gets their own player tab. Everyone "
+                              "stays tracked either way, and All Players always "
+                              "includes everyone.",
+                         bg=BG, fg=MUTED, font=("Segoe UI", 9),
+                         wraplength=540, justify="left")
+        intro.pack(fill="x", pady=(0, 6))
+        self._track_wrap(intro, 32)
         self._names_status_label = tk.Label(frame, text="", bg=BG,
                                             fg=ACCENT,
                                             font=("Segoe UI", 9))
@@ -669,6 +814,12 @@ class ConsoleGui:
         try:
             at_bottom = text.yview()[1] >= 0.999
             text.insert("end", chunk)
+            # Trim the widget itself, not just the pending buffer:
+            # this is an always-on tray app, and an untrimmed Text
+            # grows for days until the tab turns sluggish.
+            lines = int(text.index("end-1c").split(".")[0])
+            if lines > 1600:
+                text.delete("1.0", f"{lines - 1200}.0")
             if at_bottom:
                 text.see("end")
         except Exception:
@@ -701,7 +852,7 @@ class ConsoleGui:
 
     def _render_player_tab(self, name: str) -> None:
         tk = self.tk
-        frame = self._player_frames.get(name)
+        frame = self._player_inners.get(name)
         if frame is None:
             return
         for child in frame.winfo_children():
@@ -767,7 +918,8 @@ class ConsoleGui:
                        f"in the logs - {len(lvl.get('history') or [])} of "
                        f"{cur} levels sighted. The logs only record a level "
                        "when a death or level-up line catches it."),
-                 bg=BG, fg=MUTED, font=("Segoe UI", 9), wraplength=540,
+                 bg=BG, fg=MUTED, font=("Segoe UI", 9),
+                 wraplength=max(220, self.root.winfo_width() - 70),
                  justify="left").pack(anchor="w", pady=(4, 0))
 
         for heading, rows_data, color in [
@@ -888,6 +1040,11 @@ class ConsoleGui:
         from tkinter import messagebox
         self._checking_update = False
         self.update_btn.configure(state="normal", text="Update")
+        if self._hidden:
+            # The check can take ~30 s; if the window went to the
+            # tray meanwhile, a dialog parented to the withdrawn root
+            # can open invisibly and the result is never seen.
+            self.show()
         if not ok:
             messagebox.showerror(
                 "Update check failed",
@@ -1023,9 +1180,15 @@ class ConsoleGui:
 
     def quit(self) -> None:
         arkmap.log("GUI: quitting.")
+        self._persist_settings()
         self.stop.set()
         try:
             self.tray.remove()
+            # Give the tray thread a moment to actually remove the
+            # icon before the process dies, or it lingers in the
+            # notification area as a ghost until hovered over.
+            if self.tray._thread is not None:
+                self.tray._thread.join(timeout=1.0)
         except Exception:
             pass
         try:
@@ -1045,7 +1208,11 @@ class ConsoleGui:
                                        "from Nitrado...")
         try:
             self.server = arkmap.start_server(self.cfg)
-        except arkmap.AlreadyRunning:
+        except (arkmap.AlreadyRunning, OSError):
+            # AlreadyRunning is the friendly path; an OSError here is
+            # the same situation arriving by the race (two launches at
+            # once, the probe timed out and the bind lost) - it must
+            # get the same dialog, not a silent pythonw exit.
             from tkinter import messagebox
             arkmap.log("GUI: another instance is already running - "
                        "this copy is closing.")
@@ -1070,41 +1237,59 @@ class ConsoleGui:
 
     def _poller(self) -> None:
         while not self.stop.is_set():
-            self.q.put(("stats", _collect_stats(self.cfg, self.port)))
+            try:
+                self.q.put(("stats", _collect_stats(self.cfg, self.port)))
+            except Exception:
+                # A dead poller used to be invisible: stale stats
+                # forever, nothing logged (stderr is devnull under
+                # pythonw). Log and keep polling.
+                arkmap.log("GUI: stats collection failed:\n"
+                           + traceback.format_exc(limit=3))
             self.stop.wait(4)
 
     def _drain(self) -> None:
+        # Every handler is wrapped: one bad payload must never kill
+        # the drain loop. Before this, an exception skipped the
+        # after() reschedule below and the whole window froze -
+        # stats, tray commands, buttons - silently, forever.
         try:
             while True:
                 kind, payload = self.q.get_nowait()
-                if kind == "stats":
-                    self._apply_stats(payload)
-                elif kind == "log":
-                    self._append_log(payload)
-                elif kind == "refresh_done":
-                    self._refreshing = False
-                    self.refresh_btn.configure(state="normal",
-                                               text="Refresh Now")
-                elif kind == "update_check":
-                    self._update_check_done(*payload)
-                elif kind == "names_data":
-                    self._render_names(payload)
-                elif kind == "names_saved":
-                    if self._names_status_label is not None:
-                        self._names_status_label.configure(
-                            text="Saved." if payload
-                            else "Save failed - see the Terminal tab log.")
-                elif kind == "cmd":
-                    if payload == "show":
-                        self.show()
-                    elif payload == "browser":
-                        self.open_browser()
-                    elif payload == "quit":
-                        self.quit()
-                        return
+                try:
+                    if kind == "stats":
+                        self._apply_stats(payload)
+                    elif kind == "log":
+                        self._append_log(payload)
+                    elif kind == "refresh_done":
+                        self._refreshing = False
+                        self.refresh_btn.configure(state="normal",
+                                                   text="Refresh Now")
+                    elif kind == "update_check":
+                        self._update_check_done(*payload)
+                    elif kind == "names_data":
+                        self._render_names(payload)
+                    elif kind == "names_saved":
+                        if self._names_status_label is not None:
+                            self._names_status_label.configure(
+                                text="Saved." if payload
+                                else "Save failed - see the Terminal tab log.")
+                    elif kind == "cmd":
+                        if payload == "show":
+                            self.show()
+                        elif payload == "browser":
+                            self.open_browser()
+                        elif payload == "quit":
+                            self.quit()
+                            return
+                except Exception:
+                    arkmap.log(f"GUI: handler for '{kind}' failed:\n"
+                               + traceback.format_exc(limit=3))
         except queue.Empty:
             pass
-        self.root.after(250, self._drain)
+        try:
+            self.root.after(250, self._drain)
+        except Exception:
+            pass
 
     def _apply_stats(self, s: dict) -> None:
         if not s:
@@ -1210,7 +1395,10 @@ def _collect_stats(cfg: dict, port: int) -> dict:
     presence_players = []
     try:
         pr = arkmap.console_presence()
-        presence_players = pr.get("players", [])
+        # Records without a name are unusable everywhere below;
+        # drop them here rather than KeyError-ing on p["name"].
+        presence_players = [p for p in pr.get("players", [])
+                            if p.get("name")]
         out["online_names"] = [p["name"] for p in presence_players
                                if p.get("online")]
     except Exception:
@@ -1250,7 +1438,8 @@ def _collect_stats(cfg: dict, port: int) -> dict:
     except Exception:
         levels = []
     for p in levels:
-        slot(p["name"])["level"] = p
+        if p.get("name"):
+            slot(p["name"])["level"] = p
     try:
         from collections import Counter
         dc: dict = {}
@@ -1266,7 +1455,8 @@ def _collect_stats(cfg: dict, port: int) -> dict:
         pass
     out["detail"] = detail
 
-    currents = [p["current"] for p in levels if p.get("current")]
+    currents = [p["current"] for p in levels
+                if p.get("current") and p.get("name")]
     totals = []
     for p in presence_players:
         t = p.get("total_seconds") or 0
@@ -1314,4 +1504,19 @@ def run() -> int:
             arkmap.log("GUI crashed:\n" + traceback.format_exc())
         except Exception:
             pass
-        raise
+        # pythonw shows nothing on a raise - a double-click would
+        # just do nothing. Put the failure on screen.
+        try:
+            import tkinter as tk
+            from tkinter import messagebox
+            root = tk.Tk()
+            root.withdraw()
+            messagebox.showerror(
+                "Trinity Nexus ARK Console",
+                "The console window crashed while starting.\n\n"
+                f"The details are in the log:\n{arkmap.LOG_PATH}",
+                parent=root)
+            root.destroy()
+        except Exception:
+            pass
+        return 1
