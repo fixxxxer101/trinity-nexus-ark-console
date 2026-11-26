@@ -1,0 +1,211 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Trinity Nexus - Valguero Family Map</title>
+<link rel="icon" type="image/webp" href="emblem.webp">
+<link rel="stylesheet" href="leaflet.css">
+<style>
+  html, body { margin:0; padding:0; height:100%; background:#0b0e12; font-family: "Segoe UI", Arial, sans-serif; }
+  #topbar { background:#171b21; color:#e8ecf1; padding:8px 14px; display:flex; flex-wrap:wrap; align-items:center; gap:8px 18px; border-bottom:2px solid #2b6cb0; }
+  #topbar .title { font-size:19px; font-weight:700; letter-spacing:.3px; }
+  #topbar .title span { color:#63b3ed; }
+  #status { font-size:13px; color:#a0aec0; }
+  #status b { color:#e8ecf1; font-weight:600; }
+  #errbar { display:none; background:#742a2a; color:#fed7d7; font-size:13px; padding:6px 14px; }
+  #filters { background:#1d232c; color:#cbd5e0; padding:6px 14px; display:flex; flex-wrap:wrap; align-items:center; gap:6px 14px; font-size:13px; }
+  #filters select, #filters input { background:#0b0e12; color:#e8ecf1; border:1px solid #4a5568; border-radius:4px; padding:3px 6px; font-size:13px; }
+  #map { position:absolute; top:0; left:0; right:0; bottom:0; background:#0b0e12; }
+  #wrap { position:fixed; inset:0; display:flex; flex-direction:column; }
+  #mapholder { position:relative; flex:1; }
+  .leaflet-container { background:#0b0e12; }
+  .plabel { background:rgba(10,12,16,.78); color:#ffd94d; border:1px solid rgba(255,217,77,.5); font-weight:600; font-size:12px; padding:0 5px; border-radius:3px; box-shadow:none; }
+  .plabel:before { display:none; }
+  .gridlabel { color:rgba(255,255,255,.55); font-size:10px; text-shadow:0 0 3px #000; background:none; border:none; }
+  .baseicon { font-size:19px; line-height:26px; text-align:center; width:30px; height:30px; background:rgba(20,16,8,.72); border:1.5px solid #ed8936; border-radius:7px; }
+  .baseicon span { position:absolute; top:-7px; right:-9px; background:#ed8936; color:#1a1206; font-size:10.5px; font-weight:700; border-radius:8px; padding:0 4px; line-height:14px; }
+  .pop { font-size:13px; line-height:1.45; }
+  .pop .nm { font-size:14.5px; font-weight:700; }
+  .pop code { display:block; margin-top:5px; background:#edf2f7; border:1px solid #cbd5e0; border-radius:4px; padding:3px 6px; font-size:11.5px; word-break:break-all; cursor:pointer; }
+  .coords { background:rgba(13,16,21,.85); color:#e8ecf1; font-size:12.5px; padding:4px 9px; border-radius:4px; border:1px solid #2d3748; }
+  #topbar .emblem { width:30px; height:30px; border-radius:50%; vertical-align:-8px; margin-right:9px; }
+  #splash { position:fixed; inset:0; z-index:3000; background:#0a0d12; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:16px; transition:opacity .7s ease; }
+  #splash img { width:min(340px, 72vw); height:auto; }
+  #splash .spt { color:#e8ecf1; font-size:21px; font-weight:700; letter-spacing:2.5px; }
+  #splash .sps { color:#8fa3b8; font-size:13.5px; letter-spacing:.6px; }
+  #splash.hide { opacity:0; pointer-events:none; }
+</style>
+</head>
+<body>
+<div id="splash">
+  <img src="emblem.webp" alt="Trinity Nexus emblem">
+  <div class="spt">TRINITY NEXUS</div>
+  <div class="sps">Valguero · opening the valley…</div>
+</div>
+<div id="wrap">
+  <div id="topbar">
+    <div class="title"><img class="emblem" src="emblem.webp" alt="">Trinity Nexus <span>· Valguero Family Map</span> <a href="index.html" target="_top" style="color:#63b3ed;font-size:13px;font-weight:600;text-decoration:none;border:1px solid #2b6cb0;border-radius:4px;padding:2px 9px;margin-left:10px;">← Console</a></div>
+    <div id="status">Loading…</div>
+  </div>
+  <div id="errbar"></div>
+  <div id="filters">
+    <label>Wild dinos: species
+      <select id="wildSpecies"><option value="">All species</option></select>
+    </label>
+    <label>min level <input id="wildMinLvl" type="number" min="1" max="1000" placeholder="any" style="width:64px"></label>
+    <span style="color:#718096">Layers (players / tames / wilds / bases / grid) toggle at the top-right of the map. Click any marker for details.</span>
+  </div>
+  <div id="mapholder"><div id="map"></div></div>
+</div>
+
+<script src="leaflet.js"></script>
+<script>
+"use strict";
+var BOUNDS = [[0, 0], [1000, 1000]];
+function toLL(lat, lon) { return L.latLng(1000 - lat * 10, lon * 10); }
+
+var map = L.map("map", { crs: L.CRS.Simple, preferCanvas: true, minZoom: -2, maxZoom: 3, zoomSnap: 0.25 });
+L.imageOverlay("map_valguero.png", BOUNDS).addTo(map);
+map.fitBounds(BOUNDS);
+
+// coordinate grid, labelled like the in-game map (lat down the side, lon across the top)
+var gGrid = L.layerGroup();
+for (var g = 0; g <= 100; g += 10) {
+  gGrid.addLayer(L.polyline([toLL(0, g), toLL(100, g)], { color: "#ffffff", weight: 1, opacity: 0.13, interactive: false }));
+  gGrid.addLayer(L.polyline([toLL(g, 0), toLL(g, 100)], { color: "#ffffff", weight: 1, opacity: 0.13, interactive: false }));
+}
+gGrid.addTo(map);
+
+var gPlayers = L.layerGroup().addTo(map);
+var gTames = L.layerGroup().addTo(map);
+var gBases = L.layerGroup().addTo(map);
+var gWilds = L.layerGroup().addTo(map);
+L.control.layers(null, {
+  "Players": gPlayers, "Tames": gTames, "Wild dinos": gWilds, "Bases": gBases, "Grid": gGrid
+}, { collapsed: false }).addTo(map);
+
+// live coordinate readout under the mouse
+var coordBox = L.control({ position: "bottomleft" });
+coordBox.onAdd = function () { var d = L.DomUtil.create("div", "coords"); d.innerHTML = "Lat — · Lon —"; return d; };
+coordBox.addTo(map);
+map.on("mousemove", function (e) {
+  var lat = (1000 - e.latlng.lat) / 10, lon = e.latlng.lng / 10;
+  coordBox.getContainer().innerHTML = "Lat " + lat.toFixed(1) + " · Lon " + lon.toFixed(1);
+});
+
+function esc(s) { return String(s == null ? "" : s).replace(/[&<>"']/g, function (c) { return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]; }); }
+function coordsLine(lat, lon) { return "Lat " + lat + " · Lon " + lon; }
+function teleportLine(ccc) {
+  if (!ccc || ccc === "0 0 0") return "";
+  return '<code title="Click to copy - paste into the in-game console as admin">cheat SetPlayerPos ' + esc(ccc) + "</code>";
+}
+document.addEventListener("click", function (ev) {
+  if (ev.target && ev.target.tagName === "CODE" && navigator.clipboard) navigator.clipboard.writeText(ev.target.textContent);
+});
+
+var DATA = null, lastUpdated = null, splashDone = false, splashStart = Date.now();
+
+function hideSplash() {
+  if (splashDone) return;
+  splashDone = true;
+  var wait = Math.max(0, 1100 - (Date.now() - splashStart));
+  setTimeout(function () {
+    var sp = document.getElementById("splash");
+    if (sp) { sp.classList.add("hide"); setTimeout(function () { sp.remove(); }, 800); }
+  }, wait);
+}
+
+function buildLayers() {
+  if (!DATA) return;
+  gPlayers.clearLayers(); gTames.clearLayers(); gBases.clearLayers(); gWilds.clearLayers();
+
+  DATA.players.forEach(function (p) {
+    var m = L.circleMarker(toLL(p.lat, p.lon), { radius: 7, color: "#ffffff", weight: 2, fillColor: "#f6c90e", fillOpacity: 1 });
+    m.bindPopup('<div class="pop"><div class="nm">' + esc(p.n) + '</div>' +
+      (p.s && p.s !== p.n ? "Player: " + esc(p.s) + "<br>" : "") +
+      (p.t ? "Tribe: " + esc(p.t) + "<br>" : "") +
+      "Level " + esc(p.l) + "<br>" + coordsLine(p.lat, p.lon) + teleportLine(p.ccc) + "</div>");
+    m.bindTooltip(esc(p.n), { permanent: true, direction: "right", offset: [8, 0], className: "plabel" });
+    gPlayers.addLayer(m);
+  });
+
+  DATA.tames.forEach(function (t) {
+    var m = L.circleMarker(toLL(t.lat, t.lon), { radius: 5, color: "#0c2b12", weight: 1, fillColor: "#51cf66", fillOpacity: 0.95 });
+    m.bindPopup('<div class="pop"><div class="nm">' + esc(t.n) + '</div>' + esc(t.c) + " · Level " + esc(t.l) + (t.x ? " · " + (t.x === "F" ? "Female" : "Male") : "") +
+      (t.t ? "<br>Tribe: " + esc(t.t) : "") + "<br>" + coordsLine(t.lat, t.lon) + teleportLine(t.ccc) + "</div>");
+    gTames.addLayer(m);
+  });
+
+  DATA.bases.forEach(function (b) {
+    var icon = L.divIcon({ className: "", html: '<div class="baseicon">🏠<span>' + b.n + "</span></div>", iconSize: [30, 30], iconAnchor: [15, 15] });
+    var m = L.marker(toLL(b.lat, b.lon), { icon: icon });
+    m.bindPopup('<div class="pop"><div class="nm">' + esc(b.t) + '</div>' + b.n + " structures<br>" +
+      esc(b.kinds.join(", ")) + "<br>" + coordsLine(b.lat, b.lon) + "</div>");
+    gBases.addLayer(m);
+  });
+
+  var species = document.getElementById("wildSpecies").value;
+  var minLvl = parseInt(document.getElementById("wildMinLvl").value, 10);
+  DATA.wilds.forEach(function (w) {
+    if (species && w.c !== species) return;
+    if (!isNaN(minLvl) && w.l < minLvl) return;
+    var m = L.circleMarker(toLL(w.lat, w.lon), { radius: 3, weight: 0, fillColor: "#74c0fc", fillOpacity: 0.75 });
+    m.bindPopup('<div class="pop"><div class="nm">' + esc(w.c) + '</div>Level ' + esc(w.l) + (w.x ? " · " + (w.x === "F" ? "Female" : "Male") : "") + "<br>" + coordsLine(w.lat, w.lon) + "</div>");
+    gWilds.addLayer(m);
+  });
+}
+
+function refreshSpeciesOptions() {
+  if (!DATA) return;
+  var sel = document.getElementById("wildSpecies");
+  var current = sel.value;
+  var seen = {};
+  DATA.wilds.forEach(function (w) { seen[w.c] = true; });
+  var names = Object.keys(seen).sort();
+  sel.innerHTML = '<option value="">All species</option>' + names.map(function (n) { return '<option value="' + esc(n) + '">' + esc(n) + "</option>"; }).join("");
+  sel.value = current;
+}
+
+function fmtTime(iso) {
+  if (!iso) return "—";
+  var d = new Date(iso);
+  return d.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+}
+
+function loadData() {
+  fetch("data.json?_=" + Date.now()).then(function (r) { if (!r.ok) throw new Error("no data yet"); return r.json(); })
+    .then(function (d) {
+      var changed = !DATA || d.meta.updated !== lastUpdated;
+      DATA = d; lastUpdated = d.meta.updated;
+      var c = d.meta.counts;
+      var pl = function (n, one, many) { return "<b>" + n + "</b> " + (n === 1 ? one : many); };
+      document.getElementById("status").innerHTML =
+        "Updated <b>" + fmtTime(d.meta.updated) + "</b> · In-game <b>" + esc(d.meta.game_time) + "</b> · " +
+        pl(c.players, "player", "players") + " · " + pl(c.tames, "tame", "tames") + " (+" + c.cryo + " in cryo) · <b>" + c.wilds + "</b> wild · " + pl(c.bases, "base", "bases");
+      if (changed) { refreshSpeciesOptions(); buildLayers(); }
+      hideSplash();
+    })
+    .catch(function () {
+      document.getElementById("status").textContent = "Waiting for the first update from the server…";
+      hideSplash();
+    });
+  fetch("status.json?_=" + Date.now()).then(function (r) { return r.json(); })
+    .then(function (s) {
+      var bar = document.getElementById("errbar");
+      if (s && s.ok === false) {
+        bar.style.display = "block";
+        bar.textContent = "⚠ Last refresh failed (" + fmtTime(s.at) + "): " + s.message + " — showing the last good map.";
+      } else { bar.style.display = "none"; }
+    })
+    .catch(function () {});
+}
+
+document.getElementById("wildSpecies").addEventListener("change", buildLayers);
+document.getElementById("wildMinLvl").addEventListener("change", buildLayers);
+loadData();
+setInterval(loadData, 30000);
+setTimeout(hideSplash, 6000);
+</script>
+</body>
+</html>

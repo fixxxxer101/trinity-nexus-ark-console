@@ -1,0 +1,1210 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Trinity Nexus - ARK Server Console</title>
+<link rel="icon" type="image/webp" href="emblem.webp">
+<link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@500;700;900&family=Rajdhani:wght@500;600;700&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg:#06080a; --panel:#0d1411; --panel2:#111a16; --line:#1e2f27; --line2:#2c463a;
+    --tek:#3fe8c4; --tekdim:#175c4e; --amber:#f2a33c; --red:#f26d6d;
+    --text:#dce8de; --muted:#84978a; --mono:Consolas,"Cascadia Mono",monospace;
+  }
+  * { box-sizing:border-box; }
+  html, body { margin:0; padding:0; min-height:100%; }
+  body {
+    background:
+      radial-gradient(900px 480px at 85% -10%, rgba(63,232,196,.07), transparent 60%),
+      radial-gradient(700px 500px at -10% 110%, rgba(242,163,60,.05), transparent 60%),
+      var(--bg);
+    color:var(--text);
+    font-family:"Rajdhani","Segoe UI",Arial,sans-serif;
+    font-size:16px;
+  }
+  h1,h2,h3,.orb { font-family:"Orbitron","Segoe UI",sans-serif; }
+  a { color:var(--tek); }
+  .muted { color:var(--muted); }
+  .mono { font-family:var(--mono); font-size:.92em; }
+
+  /* ---------- splash ---------- */
+  #splash { position:fixed; inset:0; z-index:3000; background:#05070a; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:16px; transition:opacity .7s ease; }
+  #splash img { width:min(320px,70vw); height:auto; filter:drop-shadow(0 0 26px rgba(63,232,196,.25)); }
+  #splash .spt { font-family:"Orbitron",sans-serif; font-size:23px; font-weight:900; letter-spacing:4px; }
+  #splash .sps { color:var(--muted); font-size:14px; letter-spacing:1.5px; text-transform:uppercase; }
+  #splash.hide { opacity:0; pointer-events:none; }
+
+  /* ---------- layout ---------- */
+  #side { position:fixed; top:0; left:0; bottom:0; width:232px; background:linear-gradient(180deg,#0a100d,#070a08); border-right:1px solid var(--line); padding:20px 14px; display:flex; flex-direction:column; gap:6px; z-index:50; }
+  #side .brand { text-align:center; padding-bottom:16px; border-bottom:1px solid var(--line); margin-bottom:12px; }
+  #side .brand img { width:74px; height:74px; border-radius:50%; border:2px solid var(--tekdim); box-shadow:0 0 18px rgba(63,232,196,.25); }
+  #side .brand .bt { font-family:"Orbitron",sans-serif; font-weight:900; letter-spacing:2px; font-size:15px; margin-top:9px; }
+  #side .brand .bs { color:var(--muted); font-size:12px; letter-spacing:2.5px; text-transform:uppercase; }
+  .navbtn { display:flex; align-items:center; gap:10px; width:100%; text-align:left; background:transparent; border:1px solid transparent; color:var(--text); font-family:"Rajdhani",sans-serif; font-size:16.5px; font-weight:600; letter-spacing:1.2px; text-transform:uppercase; padding:10px 12px; cursor:pointer; position:relative; }
+  .navbtn:before { content:""; width:4px; height:60%; background:transparent; position:absolute; left:0; top:20%; }
+  .navbtn:hover { background:rgba(63,232,196,.06); }
+  .navbtn.active { background:linear-gradient(90deg, rgba(63,232,196,.14), rgba(63,232,196,.02)); border-color:var(--line); color:#fff; }
+  .navbtn.active:before { background:var(--tek); box-shadow:0 0 10px var(--tek); }
+  #side .foot { margin-top:auto; color:var(--muted); font-size:12.5px; line-height:1.5; border-top:1px solid var(--line); padding-top:12px; }
+  #main { margin-left:232px; padding:0 26px 40px; max-width:1460px; }
+
+  /* ---------- header ---------- */
+  #hdr { display:flex; flex-wrap:wrap; align-items:center; gap:10px 16px; padding:18px 0 14px; border-bottom:1px solid var(--line); position:sticky; top:0; background:linear-gradient(180deg, rgba(6,8,10,.96), rgba(6,8,10,.88)); backdrop-filter:blur(4px); z-index:40; }
+  #hdr .srv { font-family:"Orbitron",sans-serif; font-size:20px; font-weight:700; letter-spacing:.6px; }
+  .pill { display:inline-flex; align-items:center; gap:7px; border:1px solid var(--line2); padding:4px 12px; font-weight:700; letter-spacing:1px; font-size:13.5px; text-transform:uppercase; background:rgba(255,255,255,.02); }
+  .pill .dot { width:9px; height:9px; border-radius:50%; background:var(--muted); }
+  .pill.on .dot { background:var(--tek); box-shadow:0 0 9px var(--tek); animation:pulse 2s infinite; }
+  .pill.off .dot { background:var(--red); box-shadow:0 0 9px var(--red); }
+  @keyframes pulse { 0%,100% { opacity:1; } 50% { opacity:.45; } }
+  #hdr .spacer { flex:1; }
+  #clock { font-family:var(--mono); color:var(--muted); font-size:14px; }
+
+  /* ---------- panels & cards ---------- */
+  .view { display:none; padding-top:20px; }
+  .view.active { display:block; }
+  .panel { background:linear-gradient(180deg,var(--panel2),var(--panel)); border:1px solid var(--line); box-shadow:inset 0 1px 0 rgba(63,232,196,.18); padding:18px 20px; clip-path:polygon(0 0, calc(100% - 16px) 0, 100% 16px, 100% 100%, 16px 100%, 0 calc(100% - 16px)); }
+  .panel h3 { margin:0 0 12px; font-size:14px; letter-spacing:2.5px; text-transform:uppercase; color:var(--tek); font-weight:700; }
+  .grid { display:grid; gap:16px; }
+  .cards { grid-template-columns:repeat(auto-fit,minmax(180px,1fr)); }
+  .cols2 { grid-template-columns:repeat(auto-fit,minmax(340px,1fr)); }
+  .stat .lab { color:var(--muted); font-size:13px; letter-spacing:2px; text-transform:uppercase; font-weight:700; }
+  .stat .val { font-family:"Orbitron",sans-serif; font-size:24px; font-weight:700; margin-top:5px; word-break:break-word; }
+  .stat .sub { color:var(--muted); font-size:13.5px; margin-top:3px; }
+  .hero { padding:26px 28px; margin-bottom:16px; background:linear-gradient(100deg, rgba(63,232,196,.10), rgba(63,232,196,.015) 55%, rgba(242,163,60,.05)), linear-gradient(180deg,var(--panel2),var(--panel)); }
+  .hero .hn { font-family:"Orbitron",sans-serif; font-size:clamp(21px,3.4vw,34px); font-weight:900; letter-spacing:1px; line-height:1.15; }
+  .hero .hs { color:var(--muted); font-size:16px; letter-spacing:1.6px; text-transform:uppercase; margin-top:6px; font-weight:600; }
+
+  table.kv { width:100%; border-collapse:collapse; }
+  table.kv td { padding:6px 8px 6px 0; border-bottom:1px solid rgba(30,47,39,.6); vertical-align:top; }
+  table.kv td.k { color:var(--muted); font-weight:600; letter-spacing:.6px; width:42%; }
+  table.grid { width:100%; border-collapse:collapse; }
+  table.grid th { text-align:left; color:var(--muted); font-size:13px; letter-spacing:2px; text-transform:uppercase; padding:7px 10px; border-bottom:1px solid var(--line2); }
+  table.grid td { padding:8px 10px; border-bottom:1px solid rgba(30,47,39,.6); vertical-align:middle; }
+  table.grid tr:hover td { background:rgba(63,232,196,.035); }
+
+  .chip { display:inline-block; border:1px solid var(--line2); padding:2px 10px; margin:2px 3px 2px 0; font-size:13.5px; font-weight:600; letter-spacing:.5px; background:rgba(255,255,255,.02); }
+  .chip.on { border-color:var(--tekdim); color:var(--tek); }
+  .chip.off { color:var(--muted); opacity:.75; }
+  .badge { display:inline-block; padding:2px 10px; font-size:12.5px; font-weight:700; letter-spacing:1.5px; text-transform:uppercase; }
+  .badge.master { background:rgba(242,163,60,.16); color:var(--amber); border:1px solid rgba(242,163,60,.5); }
+  .badge.incr { background:rgba(63,232,196,.10); color:var(--tek); border:1px solid var(--tekdim); }
+  .badge.plain { background:rgba(255,255,255,.04); color:var(--muted); border:1px solid var(--line2); }
+
+  .btn { background:linear-gradient(180deg,#14231c,#0e1712); border:1px solid var(--line2); color:var(--text); font-family:"Rajdhani",sans-serif; font-size:15.5px; font-weight:700; letter-spacing:1.4px; text-transform:uppercase; padding:9px 18px; cursor:pointer; clip-path:polygon(0 0, calc(100% - 10px) 0, 100% 10px, 100% 100%, 10px 100%, 0 calc(100% - 10px)); }
+  .btn:hover { border-color:var(--tek); color:#fff; box-shadow:0 0 14px rgba(63,232,196,.18); }
+  .btn.tek { border-color:var(--tekdim); color:var(--tek); }
+  .btn.amber { border-color:rgba(242,163,60,.55); color:var(--amber); }
+  .btn.danger { border-color:rgba(242,109,109,.55); color:var(--red); }
+  .btn.small { padding:5px 12px; font-size:13.5px; }
+  .btn:disabled { opacity:.45; cursor:default; box-shadow:none; }
+
+  .note { border-left:3px solid var(--amber); background:rgba(242,163,60,.06); padding:12px 16px; line-height:1.55; }
+  .note.tek { border-left-color:var(--tek); background:rgba(63,232,196,.05); }
+  .err { border-left:3px solid var(--red); background:rgba(242,109,109,.07); padding:12px 16px; display:none; }
+
+  /* ---------- deaths analytics ---------- */
+  .ctl { background:#0a0f0d; border:1px solid var(--line2); color:var(--text); padding:8px 12px; font-family:inherit; font-size:15.5px; }
+  .ctl:focus { outline:none; border-color:var(--tek); }
+  .fpill.active { border-color:var(--tek); color:var(--tek); box-shadow:0 0 10px rgba(63,232,196,.25); }
+  .bar-row { display:grid; grid-template-columns:150px 1fr 40px; gap:10px; align-items:center; margin:6px 0; }
+  .bar-lab { font-weight:600; letter-spacing:.4px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .bar-track { background:rgba(255,255,255,.045); height:15px; position:relative; }
+  .bar-fill { position:absolute; left:0; top:0; bottom:0; background:linear-gradient(90deg, var(--tekdim), var(--tek)); box-shadow:0 0 9px rgba(63,232,196,.30); }
+  .bar-fill.amber { background:linear-gradient(90deg, #8a5a17, var(--amber)); box-shadow:0 0 9px rgba(242,163,60,.30); }
+  .bar-val { font-family:var(--mono); text-align:right; }
+  .daychart { display:flex; align-items:flex-end; gap:3px; height:128px; }
+  .daycol { flex:1; display:flex; flex-direction:column; align-items:center; justify-content:flex-end; height:100%; min-width:0; }
+  .daybar { width:68%; background:linear-gradient(180deg, var(--tek), var(--tekdim)); }
+  .dayval { font-size:11px; color:var(--muted); font-family:var(--mono); }
+  .daylab { font-size:10px; color:var(--muted); margin-top:3px; }
+  th.sortable { cursor:pointer; }
+  th.sortable:hover { color:var(--tek); }
+
+  /* ---------- files / logs ---------- */  .crumbs { display:flex; flex-wrap:wrap; gap:4px; align-items:center; font-family:var(--mono); font-size:14px; margin:10px 0; word-break:break-all; }
+  .crumbs button { background:none; border:none; color:var(--tek); font:inherit; cursor:pointer; padding:2px 4px; }
+  .crumbs button:hover { text-decoration:underline; }
+  .crumbs .sep { color:var(--muted); }
+  .jumps { display:flex; flex-wrap:wrap; gap:8px; }
+  #logLayout { display:grid; grid-template-columns:280px 1fr; gap:16px; align-items:start; }
+  .logitem { display:block; width:100%; text-align:left; background:none; border:1px solid transparent; color:var(--text); font-family:var(--mono); font-size:13.5px; padding:7px 10px; cursor:pointer; word-break:break-all; }
+  .logitem:hover { background:rgba(63,232,196,.05); }
+  .logitem.active { border-color:var(--line2); background:rgba(63,232,196,.08); color:#fff; }
+  #logView { background:#04070a; border:1px solid var(--line); padding:14px; font-family:var(--mono); font-size:12.5px; line-height:1.5; white-space:pre-wrap; word-break:break-word; max-height:70vh; overflow:auto; margin:0; }
+  ::-webkit-scrollbar { width:10px; height:10px; }
+  ::-webkit-scrollbar-thumb { background:#22382e; border:2px solid var(--bg); }
+  ::-webkit-scrollbar-track { background:transparent; }
+
+  /* ---------- settings tree ---------- */
+  details.tnode { border:1px solid rgba(30,47,39,.7); margin:5px 0; background:rgba(255,255,255,.012); }
+  details.tnode > summary { cursor:pointer; padding:7px 12px; font-weight:700; letter-spacing:.8px; }
+  details.tnode > .tbody { padding:6px 12px 10px; }
+  .trow { padding:4px 0; border-bottom:1px solid rgba(30,47,39,.45); }
+  .trow .k, .treenode { color:var(--text); }
+  .trow .k { color:var(--muted); font-weight:600; margin-right:8px; }
+
+  /* ---------- map ---------- */
+  #mapFrame { width:100%; height:calc(100vh - 150px); border:1px solid var(--line); background:#0b0e12; }
+
+  /* ---------- modal & toast ---------- */
+  #modalWrap { position:fixed; inset:0; background:rgba(2,4,5,.72); display:none; align-items:center; justify-content:center; z-index:900; }
+  #modalWrap.show { display:flex; }
+  #modal { width:min(480px,92vw); }
+  #modal .acts { display:flex; gap:10px; justify-content:flex-end; margin-top:18px; }
+  #toast { position:fixed; right:22px; bottom:22px; z-index:950; max-width:min(480px,90vw); display:none; }
+  #toast.show { display:block; }
+
+  @media (max-width: 860px) {
+    #side { position:static; width:auto; flex-direction:row; flex-wrap:wrap; align-items:center; }
+    #side .brand { border:none; padding:0; margin:0; display:flex; align-items:center; gap:10px; }
+    #side .brand img { width:40px; height:40px; }
+    #side .foot { display:none; }
+    #main { margin-left:0; padding:0 14px 30px; }
+    #logLayout { grid-template-columns:1fr; }
+  }
+</style>
+</head>
+<body>
+<div id="splash">
+  <img src="emblem.webp" alt="Trinity Nexus emblem">
+  <div class="spt">TRINITY NEXUS</div>
+  <div class="sps">ARK Server Console · systems coming online…</div>
+</div>
+
+<aside id="side">
+  <div class="brand">
+    <img src="emblem.webp" alt="">
+    <div>
+      <div class="bt">TRINITY NEXUS</div>
+      <div class="bs">ARK Console</div>
+    </div>
+  </div>
+  <button class="navbtn active" data-view="overview">Overview</button>
+  <button class="navbtn" data-view="map">Live Map</button>
+  <button class="navbtn" data-view="players">Players</button>
+  <button class="navbtn" data-view="deaths">Deaths</button>
+  <button class="navbtn" data-view="tames">Tames</button>
+  <button class="navbtn" data-view="files">Files</button>
+  <button class="navbtn" data-view="logs">Server Logs</button>
+  <button class="navbtn" data-view="backups">Backups</button>
+  <button class="navbtn" data-view="settings">Settings</button>
+  <div class="foot">
+    Everything Nitrado's API exposes for this server — in one place.<br>
+    Restore is intentionally not part of this console.
+  </div>
+</aside>
+
+<div id="main">
+  <div id="hdr">
+    <div class="srv" id="srvName">ARK Server</div>
+    <span class="pill" id="hdrStatus"><span class="dot"></span><span>…</span></span>
+    <span class="pill" id="hdrPlayers">— players</span>
+    <span class="pill" id="hdrMap">—</span>
+    <div class="spacer"></div>
+    <span id="clock"></span>
+  </div>
+
+  <!-- ================= OVERVIEW ================= -->
+  <section class="view active" id="view-overview">
+    <div class="panel hero">
+      <div class="hn" id="heroName">—</div>
+      <div class="hs" id="heroSub">—</div>
+    </div>
+    <div class="err" id="ovError"></div>
+    <div class="grid cards">
+      <div class="panel stat"><div class="lab">Status</div><div class="val" id="stStatus">—</div><div class="sub" id="stStatusSub"></div></div>
+      <div class="panel stat"><div class="lab">Players</div><div class="val" id="stPlayers">—</div><div class="sub">online right now</div></div>
+      <div class="panel stat"><div class="lab">Map</div><div class="val" id="stMap">—</div><div class="sub" id="stVersion"></div></div>
+      <div class="panel stat"><div class="lab">Server Day</div><div class="val" id="stDay">—</div><div class="sub" id="stDaySub"></div></div>
+      <div class="panel stat"><div class="lab">Connect</div><div class="val mono" id="stConnect" style="font-size:19px">—</div><div class="sub"><button class="btn small" id="copyConnect">Copy address</button></div></div>
+      <div class="panel stat"><div class="lab">World Save</div><div class="val" id="stSave" style="font-size:19px">—</div><div class="sub" id="stSaveSub"></div></div>
+    </div>
+
+    <div class="grid cols2" style="margin-top:16px">
+      <div class="panel">
+        <h3>Service Facts</h3>
+        <table class="kv" id="factsTable"></table>
+      </div>
+      <div class="panel">
+        <h3>Server Control</h3>
+        <p class="muted" style="margin-top:0;line-height:1.5">Start, stop and restart run through Nitrado's API, the same actions as their web panel — each one asks you to confirm first.</p>
+        <div style="display:flex;gap:10px;flex-wrap:wrap">
+          <button class="btn tek" data-control="restart">Restart</button>
+          <button class="btn amber" data-control="stop">Stop</button>
+          <button class="btn" data-control="start">Start</button>
+        </div>
+        <h3 style="margin-top:22px">Service Features</h3>
+        <div id="featChips"></div>
+      </div>
+    </div>
+
+    <div class="panel" style="margin-top:16px">
+      <h3>The World-Save Situation</h3>
+      <div id="wallBody" style="line-height:1.6"></div>
+    </div>
+  </section>
+
+  <!-- ================= MAP ================= -->
+  <section class="view" id="view-map">
+    <iframe id="mapFrame" title="Valguero live map"></iframe>
+  </section>
+
+  <!-- ================= PLAYERS ================= -->
+  <section class="view" id="view-players">
+    <div class="panel hero" style="margin-bottom:16px">
+      <div class="hn" id="plCount" style="font-size:26px">—</div>
+      <div class="hs" id="plSub">Roster &amp; sessions from the server's own logs</div>
+    </div>
+    <div id="plTabs" style="margin-bottom:16px;display:flex;flex-wrap:wrap;gap:8px"></div>
+    <div id="ptabAll">
+    <div class="grid cards" id="plAgg" style="margin-bottom:16px"></div>
+    <div class="orb" style="font-size:15px;letter-spacing:2px;margin:4px 0 10px;color:var(--tek)">IN THE WORLD NOW</div>
+    <div class="grid cols2" id="plOnline"></div>
+    <div class="panel" style="margin-top:16px">
+      <h3>Player Activity</h3>
+      <table class="grid"><thead><tr><th>Player</th><th>Level</th><th>Status</th><th>Last log-on</th><th>Last log-off</th><th>Sessions</th><th>Time played</th></tr></thead><tbody id="plActivity"><tr><td colspan="7" class="muted">Reading the logs…</td></tr></tbody></table>
+    </div>
+    <div class="panel" style="margin-top:16px">
+      <h3>Level History</h3>
+      <div id="plLevels"><span class="muted">Reading the logs…</span></div>
+    </div>
+    <div class="panel" style="margin-top:16px">
+      <h3>Recent Logins &amp; Logouts</h3>
+      <div id="plRecent"><span class="muted">Reading the logs…</span></div>
+    </div>
+    <div class="panel" style="margin-top:16px">
+      <h3>Player Lists</h3>
+      <div id="playerLists"><span class="muted">Reading the server's lists…</span></div>
+    </div>
+    </div>
+    <div id="ptabPlayer" style="display:none"></div>
+  </section>
+
+  <!-- ================= DEATHS ================= -->
+  <section class="view" id="view-deaths">
+    <div class="panel hero" style="margin-bottom:16px">
+      <div class="hn" id="deathTotal" style="font-size:26px">—</div>
+      <div class="hs" id="deathSince">From the server's own logs</div>
+    </div>
+    <div class="panel" style="margin-bottom:16px">
+      <div style="display:flex;flex-wrap:wrap;gap:10px;align-items:center">
+        <input class="ctl" id="deathSearch" type="search" placeholder="Search player, creature, anything…" style="flex:1;min-width:200px">
+        <select class="ctl" id="deathSort">
+          <option value="new">Newest first</option>
+          <option value="old">Oldest first</option>
+        </select>
+      </div>
+      <div id="deathPlayers" style="margin-top:12px;display:flex;flex-wrap:wrap;gap:8px"></div>
+    </div>
+    <div class="grid cards" id="deathStats"></div>
+    <div class="grid cols2" style="margin-top:16px">
+      <div class="panel"><h3 id="killerChartTitle">Deaths by Creature</h3><div id="chartKillers"></div></div>
+      <div class="panel"><h3>Deaths per Day</h3><div id="chartDays"></div></div>
+    </div>
+    <div class="panel" style="margin-top:16px" id="tallyPanel"><h3 id="tallyTitle">Overall Tallies — Deaths by Player</h3><div id="chartPlayers"></div></div>
+    <div id="deathSections" style="margin-top:16px"></div>
+    <div id="deathTames"></div>
+    <div class="panel" style="margin-top:16px">
+      <h3>Death Log</h3>
+      <table class="grid"><thead><tr><th class="sortable" data-sk="ts">When ⇅</th><th class="sortable" data-sk="who">Who ⇅</th><th class="sortable" data-sk="by">Killed by ⇅</th><th>Source log</th></tr></thead><tbody id="deathTable"><tr><td colspan="4" class="muted">Loading…</td></tr></tbody></table>
+      <div class="muted" id="deathShowing" style="margin-top:8px"></div>
+      <p class="muted" style="margin-bottom:0">The logs record who died, when, and what killed them — but not where. Death locations live in the world save, which is the file Nitrado won't hand over; if that ever opens, these get pins on the map.</p>
+    </div>
+  </section>
+
+  <!-- ================= TAMES ================= -->
+  <section class="view" id="view-tames">
+    <div class="panel hero" style="margin-bottom:16px">
+      <div class="hn"><span id="tmTotal">—</span> tames on record</div>
+      <div class="hs">Every tame the server's logs have ever named — claimed, frozen, released, or lost</div>
+    </div>
+    <div class="grid cards">
+      <div class="panel stat"><div class="lab">Living</div><div class="val" id="tmLiving">—</div><div class="sub">no death on record (frozen included)</div></div>
+      <div class="panel stat"><div class="lab">Frozen</div><div class="val" id="tmFrozen">—</div><div class="sub">in cryo right now</div></div>
+      <div class="panel stat"><div class="lab">Dead</div><div class="val" id="tmDead">—</div><div class="sub">lost, per the logs</div></div>
+    </div>
+    <div class="panel" style="margin-top:16px">
+      <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin-bottom:12px">
+        <input class="ctl" id="tmSearch" type="search" placeholder="Search name or breed…" style="flex:1;min-width:200px">
+        <span id="tmPills">
+          <button class="btn small fpill active" data-s="all">All</button>
+          <button class="btn small fpill" data-s="living">Living</button>
+          <button class="btn small fpill" data-s="frozen">Frozen</button>
+          <button class="btn small fpill" data-s="dead">Dead</button>
+        </span>
+      </div>
+      <table class="grid"><thead><tr><th class="sortable" data-sk="name">Name ⇅</th><th class="sortable" data-sk="species">Breed ⇅</th><th class="sortable" data-sk="level">Level ⇅</th><th class="sortable" data-sk="status">Status ⇅</th><th class="sortable" data-sk="first_seen">First seen ⇅</th><th class="sortable" data-sk="last_ts">Last event ⇅</th></tr></thead><tbody id="tmTable"><tr><td colspan="6" class="muted">Loading…</td></tr></tbody></table>
+      <p class="muted" id="tmShowing"></p>
+      <p class="muted" style="margin-bottom:0">Built from the logs since Aug 23, 2026: claims, cryo freezes and releases, and deaths. Records are keyed by name + breed, so two tames sharing both share one record. A tame whose claim predates the logs and was never frozen, released, or lost won't appear until a log line names it.</p>
+    </div>
+  </section>
+
+  <!-- ================= FILES ================= -->
+  <section class="view" id="view-files">
+    <div class="panel">
+      <h3>File Browser</h3>
+      <div class="jumps" id="fileJumps"></div>
+      <div class="crumbs" id="crumbs"></div>
+      <div class="note" id="filesWall" style="display:none;margin-bottom:12px"></div>
+      <div id="filesError" class="err"></div>
+      <table class="grid">
+        <thead><tr><th>Name</th><th>Size</th><th>Modified</th><th></th></tr></thead>
+        <tbody id="filesBody"><tr><td colspan="4" class="muted">Loading…</td></tr></tbody>
+      </table>
+    </div>
+  </section>
+
+  <!-- ================= LOGS ================= -->
+  <section class="view" id="view-logs">
+    <div id="logLayout">
+      <div class="panel">
+        <h3>Log Files</h3>
+        <div id="logList"><span class="muted">Loading…</span></div>
+      </div>
+      <div class="panel">
+        <h3 id="logTitle">Pick a log</h3>
+        <div style="display:flex;gap:8px;margin-bottom:10px">
+          <button class="btn small" id="logRefresh">Refresh</button>
+          <button class="btn small" id="logDownload">Download</button>
+        </div>
+        <pre id="logView">The server's own logs — ShooterGame.log is the live one.</pre>
+      </div>
+    </div>
+  </section>
+
+  <!-- ================= BACKUPS ================= -->
+  <section class="view" id="view-backups">
+    <div class="note tek" style="margin-bottom:16px">Every backup Nitrado holds for this server. This console shows them all — and deliberately has <b>no Restore button</b>: restoring would roll the live world back, and that stays a decision for Nitrado's own panel, never a stray click here.</div>
+    <div class="panel">
+      <h3>Gameserver Backups</h3>
+      <table class="grid"><thead><tr><th>Backup</th><th>Type</th><th>Date</th><th>Size</th></tr></thead><tbody id="bkGs"><tr><td colspan="4" class="muted">Loading…</td></tr></tbody></table>
+    </div>
+    <div class="panel" style="margin-top:16px">
+      <h3>Savegame Snapshots</h3>
+      <table class="grid"><thead><tr><th>File</th><th>Date</th><th>Size</th></tr></thead><tbody id="bkSaves"><tr><td colspan="3" class="muted">Loading…</td></tr></tbody></table>
+    </div>
+    <div class="panel" style="margin-top:16px">
+      <h3>Database Backups</h3>
+      <table class="grid"><thead><tr><th>File</th><th>Date</th><th>Size</th></tr></thead><tbody id="bkDb"><tr><td colspan="3" class="muted">Loading…</td></tr></tbody></table>
+    </div>
+  </section>
+
+  <!-- ================= SETTINGS ================= -->
+  <section class="view" id="view-settings">
+    <div class="note" style="margin-bottom:16px">Everything Nitrado reports about this server's configuration, exactly as the API returns it. This build is <b>read-only</b> — editing unlocks in the next build, once we've seen the exact shape Nitrado expects back. No blind writes to a live server.</div>
+    <div id="settingsWrap"><div class="panel"><span class="muted">Loading settings…</span></div></div>
+  </section>
+</div>
+
+<div id="modalWrap">
+  <div class="panel" id="modal">
+    <h3 id="modalTitle">Confirm</h3>
+    <p id="modalText" style="line-height:1.55"></p>
+    <div class="acts">
+      <button class="btn" id="modalCancel">Cancel</button>
+      <button class="btn danger" id="modalConfirm">Confirm</button>
+    </div>
+  </div>
+</div>
+
+<div id="toast" class="panel"></div>
+
+<script>
+"use strict";
+var $ = function (s) { return document.querySelector(s); };
+function esc(s) { return String(s == null ? "" : s).replace(/[&<>"']/g, function (c) { return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]; }); }
+function human(n) {
+  if (n == null || isNaN(n)) return "—";
+  n = Number(n);
+  if (n < 1024) return n + " B";
+  if (n < 1024 * 1024) return (n / 1024).toFixed(1) + " KB";
+  if (n < 1024 * 1024 * 1024) return (n / (1024 * 1024)).toFixed(2) + " MB";
+  return (n / (1024 * 1024 * 1024)).toFixed(2) + " GB";
+}
+function fmtTs(sec) {
+  if (!sec) return "—";
+  var d = new Date(Number(sec) * 1000);
+  return isNaN(d) ? String(sec) : d.toLocaleString([], { month: "short", day: "numeric", year: "numeric", hour: "numeric", minute: "2-digit" });
+}
+function api(path, opts) {
+  return fetch(path, opts).then(function (r) {
+    return r.json().catch(function () { return { ok: false, error: "Bad answer (HTTP " + r.status + ")" }; });
+  }).then(function (j) {
+    if (!j.ok) throw new Error(j.error || "Request failed");
+    return j;
+  });
+}
+var toastTimer = null;
+function toast(msg, isErr) {
+  var t = $("#toast");
+  t.innerHTML = esc(msg);
+  t.style.borderColor = isErr ? "rgba(242,109,109,.6)" : "var(--tekdim)";
+  t.classList.add("show");
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(function () { t.classList.remove("show"); }, 6000);
+}
+
+/* ---------------- splash ---------------- */
+var splashDone = false, splashStart = Date.now();
+function hideSplash() {
+  if (splashDone) return;
+  splashDone = true;
+  var wait = Math.max(0, 1000 - (Date.now() - splashStart));
+  setTimeout(function () {
+    var sp = $("#splash");
+    if (sp) { sp.classList.add("hide"); setTimeout(function () { sp.remove(); }, 800); }
+  }, wait);
+}
+setTimeout(hideSplash, 6000);
+
+/* ---------------- navigation ---------------- */
+var curView = "overview";
+var inited = {};
+function showView(v) {
+  curView = v;
+  document.querySelectorAll(".navbtn").forEach(function (b) { b.classList.toggle("active", b.dataset.view === v); });
+  document.querySelectorAll(".view").forEach(function (s) { s.classList.toggle("active", s.id === "view-" + v); });
+  if (v === "map" && !inited.map) { inited.map = true; $("#mapFrame").src = "map.html"; }
+  if (v === "files" && !inited.files) { inited.files = true; initFiles(); }
+  if (v === "logs" && !inited.logs) { inited.logs = true; loadLogs(); }
+  if (v === "backups" && !inited.backups) { inited.backups = true; loadBackups(); }
+  if (v === "settings" && !inited.settings) { inited.settings = true; loadSettings(); }
+  if (v === "players") { renderPlayers(); loadPlayerLists(); }
+  if (v === "deaths") { loadDeaths(); }
+  if (v === "tames") { loadTames(); }
+}
+document.querySelectorAll(".navbtn").forEach(function (b) {
+  b.addEventListener("click", function () { showView(b.dataset.view); });
+});
+
+/* ---------------- overview ---------------- */
+var OV = null;
+function statusWord(s) {
+  if (s === "started") return "ONLINE";
+  if (s === "stopped") return "OFFLINE";
+  return s ? String(s).toUpperCase() : "—";
+}
+function loadOverview() {
+  return api("/api/overview").then(function (j) {
+    OV = j;
+    renderOverview();
+    hideSplash();
+  }).catch(function (e) {
+    var b = $("#ovError");
+    b.style.display = "block";
+    b.textContent = "Could not reach the console API: " + e.message;
+    hideSplash();
+  });
+}
+function renderOverview() {
+  var gs = OV.gameserver || {}, q = gs.query || {}, svc = OV.service || {}, det = svc.details || {};
+  var name = q.server_name || det.name || "ARK Server";
+  $("#srvName").textContent = name;
+  $("#heroName").textContent = name;
+  $("#heroSub").textContent = [det.game || "ARK: Survival Evolved (Xbox One)", q.map || "", q.connect_ip || ""].filter(Boolean).join("  ·  ");
+  var pill = $("#hdrStatus");
+  pill.className = "pill" + (gs.status === "started" ? " on" : gs.status === "stopped" ? " off" : "");
+  pill.innerHTML = '<span class="dot"></span><span>' + esc(statusWord(gs.status)) + "</span>";
+  $("#hdrPlayers").textContent = (q.player_current != null ? q.player_current : "—") + " / " + (q.player_max != null ? q.player_max : "—") + " players";
+  $("#hdrMap").textContent = q.map || "—";
+  $("#stStatus").textContent = statusWord(gs.status);
+  $("#stStatusSub").textContent = gs.status === "started" ? "the world is live" : "";
+  $("#stPlayers").textContent = (q.player_current != null ? q.player_current : "—") + " / " + (q.player_max != null ? q.player_max : "—");
+  $("#stMap").textContent = q.map || "—";
+  $("#stVersion").textContent = q.version ? "version " + q.version : "";
+  $("#stConnect").textContent = q.connect_ip || "—";
+  var dy = OV.day || {};
+  if (dy.ok) {
+    $("#stDay").textContent = "Day " + (dy.est_day || dy.day);
+    $("#stDaySub").textContent = "confirmed Day " + dy.day + " · " + fmtWhen(dy.ts);
+  } else {
+    $("#stDay").textContent = "—";
+    $("#stDaySub").textContent = "no tribe-log stamps yet";
+  }
+  var st = OV.state || {};
+  if (st.walled) {
+    $("#stSave").textContent = "Held by Nitrado";
+    $("#stSaveSub").textContent = "watching every new backup";
+  } else if (OV.status && OV.status.ok) {
+    $("#stSave").textContent = "Live";
+    $("#stSaveSub").textContent = OV.status.message || "";
+  } else {
+    $("#stSave").textContent = "Waiting";
+    $("#stSaveSub").textContent = (OV.status && OV.status.message) || "";
+  }
+  var facts = [];
+  function fact(k, v) { if (v != null && v !== "") facts.push("<tr><td class='k'>" + esc(k) + "</td><td>" + esc(v) + "</td></tr>"); }
+  fact("Service ID", OV.config && OV.config.service_id);
+  fact("Service username", svc.username);
+  fact("Address", det.address);
+  fact("Game", det.game);
+  fact("Slots", det.slots);
+  fact("File root", OV.file_root);
+  fact("Save check interval", OV.config && OV.config.interval_min ? OV.config.interval_min + " min" : "");
+  fact("Console version", OV.version);
+  Object.keys(det).forEach(function (k) {
+    if (["address", "game", "slots", "name"].indexOf(k) >= 0) return;
+    var v = det[k];
+    if (typeof v !== "object") fact(k, v);
+  });
+  $("#factsTable").innerHTML = facts.join("") || "<tr><td class='muted'>No facts returned.</td></tr>";
+  var feats = (gs.game_specific || {}).features || {};
+  var fk = Object.keys(feats);
+  $("#featChips").innerHTML = fk.length ? fk.map(function (k) {
+    return '<span class="chip ' + (feats[k] ? "on" : "off") + '">' + esc(k.replace(/^has_/, "").replace(/_/g, " ")) + (feats[k] ? "" : " · off") + "</span>";
+  }).join("") : '<span class="muted">No feature data returned.</span>';
+  var wb = [];
+  if (st.walled) {
+    wb.push("Nitrado's API will list this Xbox server's world-save backups but refuses to hand over the file itself (HTTP 500 on that one folder — everything else downloads fine). The web panel is restore-only, and the API has no backup-download route at all.");
+    wb.push("So this console's map waits, honestly: the app checks <b>every new savegame backup</b> the moment it appears and tries it exactly once" + (st.watch_tried ? " — latest tried: <span class='mono'>" + esc(st.watch_tried) + "</span>" : "") + ". A support ticket went to Nitrado on Nov 25, 2026. If they open the folder, the map fills in by itself — nothing to redo here.");
+  } else {
+    wb.push("The world save is flowing. Latest source: <span class='mono'>" + esc(st.source_name || "—") + "</span>.");
+  }
+  if (st.backup_probed) wb.push("Gameserver backup download probe: tried for backup #" + esc(st.backup_probed) + " — no route exists.");
+  $("#wallBody").innerHTML = wb.map(function (p) { return "<p style='margin:0 0 10px'>" + p + "</p>"; }).join("");
+}
+$("#copyConnect").addEventListener("click", function () {
+  var v = $("#stConnect").textContent;
+  if (v && v !== "—" && navigator.clipboard) { navigator.clipboard.writeText(v); toast("Server address copied: " + v); }
+});
+
+/* ---------------- control ---------------- */
+var pendingAction = null;
+var CONTROL_TEXT = {
+  restart: ["Restart the server?", "Everyone in game will be disconnected. The world saves, the server shuts down and boots again — usually a few minutes."],
+  stop: ["Stop the server?", "The server goes offline and stays offline until someone starts it again. The world is safe; nobody can play while it's stopped."],
+  start: ["Start the server?", "The server boots and the world comes back online in a few minutes."]
+};
+document.querySelectorAll("[data-control]").forEach(function (b) {
+  b.addEventListener("click", function () {
+    pendingAction = b.dataset.control;
+    $("#modalTitle").textContent = CONTROL_TEXT[pendingAction][0];
+    $("#modalText").textContent = CONTROL_TEXT[pendingAction][1];
+    $("#modalConfirm").textContent = pendingAction.toUpperCase();
+    $("#modalWrap").classList.add("show");
+  });
+});
+$("#modalCancel").addEventListener("click", function () { $("#modalWrap").classList.remove("show"); pendingAction = null; });
+$("#modalConfirm").addEventListener("click", function () {
+  var action = pendingAction;
+  $("#modalWrap").classList.remove("show");
+  pendingAction = null;
+  if (!action) return;
+  toast("Sending " + action + " to Nitrado…");
+  api("/api/control", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: action }) })
+    .then(function (r) {
+      toast("Server " + action + " accepted by Nitrado (" + ((r.answer && r.answer.status) || "success") + "). Status refreshes shortly.");
+      setTimeout(loadOverview, 3000);
+    })
+    .catch(function (e) { toast("Control failed: " + e.message, true); });
+});
+
+/* ---------------- players ---------------- */
+function fmtWhen(ts) {
+  return ts ? new Date(ts * 1000).toLocaleString([], { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }) : "—";
+}
+function fmtDur(sec) {
+  if (sec == null || isNaN(sec)) return "—";
+  sec = Math.max(0, Math.floor(sec));
+  var d = Math.floor(sec / 86400), h = Math.floor(sec % 86400 / 3600), m2 = Math.floor(sec % 3600 / 60);
+  if (d) return d + "d " + h + "h";
+  if (h) return h + "h " + m2 + "m";
+  return m2 + "m";
+}
+function renderPlayers() {
+  api("/api/presence").then(function (pr) {
+    return api("/api/levels").catch(function () { return { players: [] }; }).then(function (lv) {
+      return api("/api/deaths").catch(function () { return { events: [] }; }).then(function (de) {
+        return { pr: pr, lv: lv, de: de };
+      });
+    });
+  }).then(function (both) {
+    var pr = both.pr, lv = both.lv;
+    PPR = pr; PLV = lv; PDEATHS = both.de.events || [];
+    var LEVELS = {};
+    (lv.players || []).forEach(function (p) { LEVELS[p.name] = p; });
+    var players = pr.players || [];
+    var online = players.filter(function (p) { return p.online; });
+    var qc = (OV && OV.gameserver && OV.gameserver.query) || {};
+    $("#plCount").textContent = online.length + " online";
+    $("#plSub").textContent = "Roster & sessions from the server's own logs" +
+      (qc.player_current != null && qc.player_current !== online.length ? " · Nitrado's counter says " + qc.player_current + " (it counts heads without naming names on Xbox)" : "");
+    var now = Date.now() / 1000;
+    $("#plOnline").innerHTML = online.length ? online.map(function (p) {
+      return '<div class="panel"><div class="orb" style="font-size:18px;font-weight:700">' + esc(p.name) + ' <span class="badge incr">online</span></div>' +
+        '<table class="kv" style="margin-top:8px"><tr><td class="k">Logged on</td><td>' + fmtWhen(p.since) + "</td></tr>" +
+        '<tr><td class="k">This session</td><td>' + fmtDur(now - (p.since || now)) + "</td></tr>" +
+        '<tr><td class="k">Total time</td><td>' + fmtDur((p.total_seconds || 0) + (now - (p.since || now))) + "</td></tr></table></div>";
+    }).join("") : '<div class="panel"><span class="muted">Nobody is in the world right now.</span></div>';
+    $("#plActivity").innerHTML = players.length ? players.map(function (p) {
+      var total = (p.total_seconds || 0) + (p.online && p.since ? now - p.since : 0);
+      return "<tr><td><b>" + esc(p.name) + "</b></td>" +
+        "<td>" + (LEVELS[p.name] ? "Lvl " + LEVELS[p.name].current : '<span class="muted">—</span>') + "</td>" +
+        "<td>" + (p.online ? '<span class="badge incr">online</span>' : '<span class="badge plain">offline</span>') + "</td>" +
+        "<td>" + fmtWhen(p.last_on) + "</td><td>" + (p.online ? '<span class="muted">still on</span>' : fmtWhen(p.last_off)) + "</td>" +
+        "<td>" + (p.sessions || 0) + "</td><td>" + fmtDur(total) + "</td></tr>";
+    }).join("") : '<tr><td colspan="7" class="muted">No sessions recorded yet — the scanner reads joins and leaves from the server logs.</td></tr>';
+    var act = pr.activity || [];
+    $("#plRecent").innerHTML = act.length ? act.slice(0, 15).map(function (e) {
+      return '<div class="trow"><span class="muted">' + fmtWhen(e.ts) + "</span> &nbsp;<b>" + esc(e.who) + "</b> " +
+        (e.action === "on" ? '<span class="badge incr">logged on</span>' : '<span class="badge plain">logged off</span>') + "</div>";
+    }).join("") : '<span class="muted">No logins or logouts recorded yet.</span>';
+    var lvPlayers = lv.players || [];
+    $("#plLevels").innerHTML = lvPlayers.length ? lvPlayers.map(function (p) {
+      return '<div style="margin-bottom:12px"><div class="orb" style="font-weight:700;letter-spacing:1px">' + esc(p.name) + " — level " + p.current + "</div>" +
+        '<div style="margin-top:6px">' + p.history.map(function (h) {
+          return '<span class="badge plain" style="margin:0 6px 6px 0">Lvl ' + h.level + " · " + (h.ts ? new Date(h.ts * 1000).toLocaleDateString([], { month: "short", day: "numeric" }) : "") + "</span>";
+        }).join("") + "</div>" +
+        '<div class="muted">First seen at each level, from ' + p.sightings + " level sighting" + (p.sightings === 1 ? "" : "s") + " in the logs (death and level-up lines record the player's current level).</div></div>";
+    }).join("") : '<span class="muted">No level sightings yet — levels are read from the levels written into death, kill, and level-up log lines.</span>';
+    renderPlayerTabs();
+    renderAggregates();
+    if (playerTab) renderPlayerTab();
+  }).catch(function (e) {
+    $("#plOnline").innerHTML = '<div class="panel"><span class="muted">Presence is unavailable: ' + esc(e.message) + "</span></div>";
+  });
+}
+/* ---------------- player tabs ---------------- */
+var playerTab = "";
+var PPR = null, PLV = null, PDEATHS = [];
+function renderPlayerTabs() {
+  if (!PPR) return;
+  var names = (PPR.players || []).map(function (p) { return p.name; });
+  if (playerTab && names.indexOf(playerTab) < 0) playerTab = "";
+  $("#plTabs").innerHTML = ['<button class="btn small fpill' + (playerTab === "" ? " active" : "") + '" data-t="">All Players</button>']
+    .concat(names.map(function (n) {
+      return '<button class="btn small fpill' + (playerTab === n ? " active" : "") + '" data-t="' + esc(n) + '">' + esc(n) + "</button>";
+    })).join("");
+  document.querySelectorAll("#plTabs .fpill").forEach(function (b) {
+    b.addEventListener("click", function () { setPlayerTab(b.getAttribute("data-t") || ""); });
+  });
+  $("#ptabAll").style.display = playerTab ? "none" : "";
+  $("#ptabPlayer").style.display = playerTab ? "" : "none";
+}
+function setPlayerTab(name) {
+  playerTab = name;
+  renderPlayerTabs();
+  if (playerTab) renderPlayerTab();
+}
+function renderAggregates() {
+  if (!PPR) return;
+  var players = PPR.players || [];
+  var now = Date.now() / 1000;
+  var lvBy = {};
+  ((PLV && PLV.players) || []).forEach(function (p) { lvBy[p.name] = p.current; });
+  var totTime = 0, totLvl = 0, nLvl = 0;
+  players.forEach(function (p) {
+    totTime += (p.total_seconds || 0) + (p.online && p.since ? now - p.since : 0);
+    if (lvBy[p.name]) { totLvl += lvBy[p.name]; nLvl++; }
+  });
+  var avgLvl = nLvl ? Math.round(totLvl / nLvl * 10) / 10 : 0;
+  var avgTime = players.length ? totTime / players.length : 0;
+  $("#plAgg").innerHTML =
+    '<div class="panel stat"><div class="lab">Average Level</div><div class="val">' + (nLvl ? avgLvl : "—") + '</div><div class="sub">across ' + nLvl + ' players</div></div>' +
+    '<div class="panel stat"><div class="lab">Total Combined Level</div><div class="val">' + (nLvl ? totLvl : "—") + '</div><div class="sub">everyone\'s current levels added up</div></div>' +
+    '<div class="panel stat"><div class="lab">Average Playtime</div><div class="val">' + fmtDur(avgTime) + '</div><div class="sub">per player</div></div>' +
+    '<div class="panel stat"><div class="lab">Total Play Time</div><div class="val">' + fmtDur(totTime) + '</div><div class="sub">the whole tribe, all sessions</div></div>';
+}
+function renderPlayerTab() {
+  var name = playerTab;
+  if (!PPR || !name) return;
+  var now = Date.now() / 1000;
+  var p = (PPR.players || []).filter(function (x) { return x.name === name; })[0] || {};
+  var lp = ((PLV && PLV.players) || []).filter(function (x) { return x.name === name; })[0];
+  var myDeaths = PDEATHS.filter(function (e) { return e.kind === "player" && (e.player || e.who) === name; });
+  var total = (p.total_seconds || 0) + (p.online && p.since ? now - p.since : 0);
+  var cur = lp ? lp.current : 0;
+  var proven = {};
+  (lp ? lp.history : []).forEach(function (h) { proven[h.level] = h.ts; });
+  var ladder = "";
+  for (var L = 1; L <= cur; L++) {
+    if (proven[L]) ladder += '<span class="badge incr" style="margin:0 5px 6px 0" title="First seen ' + fmtWhen(proven[L]) + '">Lvl ' + L + " · " + new Date(proven[L] * 1000).toLocaleDateString([], { month: "short", day: "numeric" }) + "</span>";
+    else ladder += '<span class="badge plain" style="margin:0 5px 6px 0">Lvl ' + L + "</span>";
+  }
+  var myAct = (PPR.activity || []).filter(function (e) { return e.who === name; }).slice(0, 10);
+  $("#ptabPlayer").innerHTML =
+    '<div class="grid cards">' +
+    '<div class="panel stat"><div class="lab">Level</div><div class="val">' + (cur || "—") + '</div><div class="sub">' + (lp ? lp.sightings + " sightings in the logs" : "no sightings yet") + '</div></div>' +
+    '<div class="panel stat"><div class="lab">Time Played</div><div class="val">' + fmtDur(total) + '</div><div class="sub">' + (p.sessions || 0) + ' sessions</div></div>' +
+    '<div class="panel stat"><div class="lab">Deaths</div><div class="val">' + myDeaths.length + '</div><div class="sub">player deaths on record</div></div></div>' +
+    '<div class="panel" style="margin-top:16px"><h3>Level Ladder — 1 to ' + cur + '</h3>' +
+    '<div class="muted" style="margin-bottom:10px">Highlighted rungs are proven by a log sighting on that date. The rest were passed through between sightings — the logs only write a level down when a death or level-up line records it, so the scanner collects every sighting it can find.</div>' +
+    (cur ? ladder : '<span class="muted">No level sightings yet.</span>') + '</div>' +
+    '<div style="margin-top:16px">' +
+    '<div class="panel"><h3>' + esc(name) + ' — Deaths by Creature</h3>' + hbars(countBy(myDeaths, function (e) { return killerType(e.by); })) + '</div></div>' +
+    '<div class="panel" style="margin-top:16px"><h3>Recent Logins &amp; Logouts</h3>' +
+    (myAct.length ? myAct.map(function (e) { return '<div class="trow"><span class="muted">' + fmtWhen(e.ts) + "</span> &nbsp;" + (e.action === "on" ? '<span class="badge incr">logged on</span>' : '<span class="badge plain">logged off</span>') + "</div>"; }).join("") : '<span class="muted">None recorded.</span>') + '</div>';
+}
+
+function mineLists(node, out) {
+  if (!node || typeof node !== "object") return;
+  Object.keys(node).forEach(function (k) {
+    var v = node[k];
+    if (/ban|white|priority|admin/i.test(k)) {
+      out.push([k, Array.isArray(v) ? v : [v]]);
+    }
+    if (v && typeof v === "object") mineLists(v, out);
+  });
+}
+function loadPlayerLists() {
+  api("/api/settings").then(function (r) {
+    var out = [];
+    mineLists(r.settings, out);
+    if (!out.length) { $("#playerLists").innerHTML = '<span class="muted">No ban / whitelist / priority lists found in the settings the API returned.</span>'; return; }
+    $("#playerLists").innerHTML = out.map(function (pair) {
+      var entries = pair[1].map(function (x) { return typeof x === "object" ? JSON.stringify(x) : String(x); }).filter(function (s) { return s && s !== "{}" && s !== "[]" && s !== "null"; });
+      return '<div style="margin-bottom:10px"><div class="orb" style="font-weight:700;letter-spacing:1px">' + esc(pair[0]) + "</div>" +
+        (entries.length ? entries.map(function (s) { return '<div class="trow">' + esc(s) + "</div>"; }).join("") : '<span class="muted">Empty.</span>') + "</div>";
+    }).join("");
+  }).catch(function (e) {
+    $("#playerLists").innerHTML = '<span class="muted">Could not read the lists: ' + esc(e.message) + "</span>";
+  });
+}
+
+/* ---------------- deaths ---------------- */
+var DEATHS = [];
+var deathPlayer = "";
+var deathSortKey = "ts", deathSortDir = -1;
+function killerType(by) {
+  if (!by) return "Unknown / environment";
+  var s = String(by).replace(/^(a|an|the)\s+/i, "").trim();
+  return s || "Unknown / environment";
+}
+function countBy(list, fn) {
+  var out = {};
+  list.forEach(function (e) { var k = fn(e); out[k] = (out[k] || 0) + 1; });
+  return Object.keys(out).map(function (k) { return { label: k, value: out[k] }; })
+    .sort(function (a, b) { return b.value - a.value || (a.label < b.label ? -1 : 1); });
+}
+function hbars(rows, amber, all) {
+  if (!rows.length) return '<span class="muted">No data.</span>';
+  var top = all ? rows.slice() : rows.slice(0, 10);
+  if (!all && rows.length > 10) {
+    top.push({ label: "Other (" + (rows.length - 10) + " more)", value: rows.slice(10).reduce(function (s, r) { return s + r.value; }, 0) });
+  }
+  var max = Math.max.apply(null, top.map(function (r) { return r.value; }));
+  return top.map(function (r) {
+    return '<div class="bar-row"><div class="bar-lab" title="' + esc(r.label) + '">' + esc(r.label) + '</div><div class="bar-track"><div class="bar-fill' + (amber ? " amber" : "") + '" style="width:' + Math.max(2, Math.round(r.value / max * 100)) + '%"></div></div><div class="bar-val">' + r.value + "</div></div>";
+  }).join("");
+}
+function dayChart(events) {
+  var byDay = {};
+  events.forEach(function (e) {
+    if (!e.ts) return;
+    var d = new Date(e.ts * 1000);
+    var key = d.getFullYear() + "-" + (d.getMonth() + 1) + "-" + d.getDate();
+    byDay[key] = (byDay[key] || 0) + 1;
+  });
+  var days = Object.keys(byDay).sort();
+  if (!days.length) return '<span class="muted">No dated deaths yet.</span>';
+  var show = days.slice(-21);
+  var max = Math.max.apply(null, show.map(function (k) { return byDay[k]; }));
+  return '<div class="daychart">' + show.map(function (k) {
+    var p = k.split("-");
+    return '<div class="daycol"><div class="dayval">' + byDay[k] + '</div><div class="daybar" style="height:' + Math.max(4, Math.round(byDay[k] / max * 82)) + 'px"></div><div class="daylab">' + p[1] + "/" + p[2] + "</div></div>";
+  }).join("") + "</div>";
+}
+function deathModeEvents() {
+  if (deathPlayer === "__tames") return DEATHS.filter(function (e) { return e.kind === "tame"; });
+  if (deathPlayer) return DEATHS.filter(function (e) { return e.kind === "player" && e.who === deathPlayer; });
+  return DEATHS.filter(function (e) { return e.kind === "player"; });
+}
+function deathFiltered() {
+  var q = ($("#deathSearch").value || "").toLowerCase();
+  return deathModeEvents().filter(function (e) {
+    if (q && (e.who + " " + (e.by || "") + " " + (e.species || "") + " " + (e.raw || "")).toLowerCase().indexOf(q) < 0) return false;
+    return true;
+  });
+}
+function renderDeathPills() {
+  var players = DEATHS.filter(function (e) { return e.kind === "player"; });
+  var tames = DEATHS.filter(function (e) { return e.kind === "tame"; });
+  var names = countBy(players, function (e) { return e.who; }).map(function (r) { return r.label; });
+  if (deathPlayer && deathPlayer !== "__tames" && names.indexOf(deathPlayer) < 0) deathPlayer = "";
+  $("#deathPlayers").innerHTML = ['<button class="btn small fpill' + (deathPlayer === "" ? " active" : "") + '" data-p="">All players</button>']
+    .concat(names.map(function (n) {
+      return '<button class="btn small fpill' + (deathPlayer === n ? " active" : "") + '" data-p="' + esc(n) + '">' + esc(n) + "</button>";
+    }))
+    .concat(['<button class="btn small fpill' + (deathPlayer === "__tames" ? " active" : "") + '" data-p="__tames">Tames (' + tames.length + ")</button>"])
+    .join("");
+  document.querySelectorAll("#deathPlayers .fpill").forEach(function (b) {
+    b.addEventListener("click", function () { deathPlayer = b.getAttribute("data-p") || ""; renderDeathPills(); renderDeaths(); });
+  });
+}
+function renderDeaths() {
+  var tamesMode = deathPlayer === "__tames";
+  var ev = deathFiltered();
+  var sorted = ev.slice().sort(function (a, b) {
+    var av = a[deathSortKey], bv = b[deathSortKey];
+    if (deathSortKey === "ts") { av = av || 0; bv = bv || 0; }
+    else { av = String(av || "").toLowerCase(); bv = String(bv || "").toLowerCase(); }
+    if (av < bv) return -1 * deathSortDir;
+    if (av > bv) return 1 * deathSortDir;
+    return 0;
+  });
+  var nP = DEATHS.filter(function (e) { return e.kind === "player"; }).length;
+  var nT = DEATHS.length - nP;
+  $("#deathTotal").textContent = nP + " player death" + (nP === 1 ? "" : "s") + " · " + nT + " tame loss" + (nT === 1 ? "" : "es");
+  if (DEATHS.length) {
+    var first = DEATHS.slice().sort(function (a, b) { return (a.ts || 0) - (b.ts || 0); })[0];
+    $("#deathSince").textContent = "From the server's own logs · since " + (first.ts ? new Date(first.ts * 1000).toLocaleDateString([], { month: "short", day: "numeric", year: "numeric" }) : "—");
+  }
+  var killers = countBy(ev, function (e) { return killerType(e.by); });
+  var byWho = countBy(ev, function (e) { return tamesMode ? (e.species || "Unknown type") : e.who; });
+  var lvls = ev.filter(function (e) { return e.by_lvl; }).map(function (e) { return e.by_lvl; });
+  var avgLvl = lvls.length ? Math.round(lvls.reduce(function (s, x) { return s + x; }, 0) / lvls.length) : null;
+  var week = ev.filter(function (e) { return e.ts && e.ts > Date.now() / 1000 - 7 * 86400; }).length;
+  $("#deathStats").innerHTML =
+    '<div class="panel stat"><div class="lab">' + (tamesMode ? "Tame Losses" : deathPlayer ? "Deaths — " + esc(deathPlayer) : "Player Deaths") + '</div><div class="val">' + ev.length + '</div><div class="sub">' + week + " in the last 7 days</div></div>" +
+    '<div class="panel stat"><div class="lab">Deadliest Creature</div><div class="val" style="font-size:21px">' + (killers.length ? esc(killers[0].label) : "—") + '</div><div class="sub">' + (killers.length ? killers[0].value + " kill" + (killers[0].value === 1 ? "" : "s") : "") + "</div></div>" +
+    (deathPlayer && !tamesMode
+      ? '<div class="panel stat"><div class="lab">Nemesis Share</div><div class="val">' + (killers.length && ev.length ? Math.round(killers[0].value / ev.length * 100) + "%" : "—") + '</div><div class="sub">of their deaths are ' + (killers.length ? esc(killers[0].label) : "") + "</div></div>"
+      : '<div class="panel stat"><div class="lab">' + (tamesMode ? "Most Losses" : "Most Deaths") + '</div><div class="val" style="font-size:21px">' + (byWho.length ? esc(byWho[0].label) : "—") + '</div><div class="sub">' + (byWho.length ? byWho[0].value + (tamesMode ? " losses" : " deaths") : "") + "</div></div>") +
+    '<div class="panel stat"><div class="lab">Avg Killer Level</div><div class="val">' + (avgLvl == null ? "—" : avgLvl) + '</div><div class="sub">across ' + lvls.length + " leveled kills</div></div>";
+  $("#killerChartTitle").textContent = tamesMode ? "What Killed the Tames" : "Deaths by Creature" + (deathPlayer ? " — " + deathPlayer : " — All Players");
+  $("#chartKillers").innerHTML = hbars(killers);
+  $("#chartDays").innerHTML = dayChart(ev);
+  $("#tallyPanel").style.display = deathPlayer && !tamesMode ? "none" : "";
+  $("#tallyTitle").textContent = tamesMode ? "Losses by Breed" : "Overall Tallies — Deaths by Player";
+  $("#chartPlayers").innerHTML = hbars(byWho, true, tamesMode);
+  if (!deathPlayer) {
+    $("#deathSections").innerHTML = countBy(ev, function (e) { return e.who; }).map(function (r) {
+      var mine = ev.filter(function (e) { return e.who === r.label; });
+      var mk = countBy(mine, function (e) { return killerType(e.by); });
+      var last = mine.slice().sort(function (a, b) { return (b.ts || 0) - (a.ts || 0); })[0];
+      return '<div class="panel" style="margin-bottom:16px"><h3>' + esc(r.label) + " — " + mine.length + " death" + (mine.length === 1 ? "" : "s") + "</h3>" +
+        '<div class="muted" style="margin-bottom:10px">Deadliest for them: <b style="color:var(--text)">' + (mk.length ? esc(mk[0].label) : "—") + "</b>" +
+        (last && last.ts ? " · last death " + fmtWhen(last.ts) + (last.by ? " by " + esc(killerType(last.by)) : "") : "") + "</div>" +
+        hbars(mk.slice(0, 8)) + "</div>";
+    }).join("");
+    var tamesAll = DEATHS.filter(function (e) { return e.kind === "tame"; });
+    $("#deathTames").innerHTML = tamesAll.length ?
+      '<div class="panel"><h3>Tame Losses — ' + tamesAll.length + ' total</h3>' +
+      '<div class="muted" style="margin-bottom:10px">By breed — every breed shown, names left out. Open the <b style="color:var(--text)">Tames</b> view above for the full breakdown.</div>' +
+      hbars(countBy(tamesAll, function (e) { return e.species || "Unknown type"; }), true, true) + "</div>" : "";
+  } else {
+    $("#deathSections").innerHTML = "";
+    $("#deathTames").innerHTML = "";
+  }
+  var cap = sorted.slice(0, 300);
+  $("#deathTable").innerHTML = cap.length ? cap.map(function (e) {
+    return "<tr><td>" + fmtWhen(e.ts) + "</td>" +
+      "<td><b>" + esc(e.who) + "</b>" + (e.who_lvl ? ' <span class="muted">Lvl ' + e.who_lvl + "</span>" : "") +
+      (e.kind === "player" ? ' <span class="badge incr">player</span>' : ' <span class="badge plain">tame' + (e.species ? " · " + esc(e.species) : "") + "</span>") + "</td>" +
+      "<td>" + (e.by ? esc(e.by) + (e.by_lvl ? ' <span class="muted">Lvl ' + e.by_lvl + "</span>" : "") : '<span class="muted">unknown</span>') + "</td>" +
+      '<td class="muted" title="' + esc(e.raw || "") + '">' + esc(e.source || "") + "</td></tr>";
+  }).join("") : '<tr><td colspan="4" class="muted">No deaths match.</td></tr>';
+  $("#deathShowing").textContent = "Showing " + cap.length + " of " + sorted.length + (tamesMode ? " tame losses" : " deaths") + (deathPlayer && !tamesMode ? " for " + deathPlayer : "") + ".";
+}
+function loadDeaths() {
+  api("/api/deaths").then(function (r) {
+    DEATHS = r.events || [];
+    DEATHS.forEach(function (e) { if (e.kind === "player" && e.player) e.who = e.player; });
+    renderDeathPills();
+    renderDeaths();
+  }).catch(function (e) {
+    $("#deathTable").innerHTML = '<tr><td colspan="4" class="muted">Could not load deaths: ' + esc(e.message) + "</td></tr>";
+  });
+}
+$("#deathSearch").addEventListener("input", renderDeaths);
+$("#deathSort").addEventListener("change", function () {
+  deathSortKey = "ts";
+  deathSortDir = this.value === "old" ? 1 : -1;
+  renderDeaths();
+});
+document.querySelectorAll("#view-deaths th.sortable").forEach(function (th) {
+  th.addEventListener("click", function () {
+    var k = th.getAttribute("data-sk");
+    if (deathSortKey === k) { deathSortDir = -deathSortDir; }
+    else { deathSortKey = k; deathSortDir = k === "ts" ? -1 : 1; }
+    renderDeaths();
+  });
+});
+
+/* ---------------- tames ---------------- */
+var TAMES = [];
+var tameFilter = "all";
+var tameSortKey = "name", tameSortDir = 1;
+function loadTames() {
+  api("/api/tames").then(function (r) {
+    TAMES = r.tames || [];
+    var c = r.counts || {};
+    $("#tmTotal").textContent = c.total != null ? c.total : TAMES.length;
+    $("#tmLiving").textContent = c.living != null ? c.living : "—";
+    $("#tmFrozen").textContent = c.frozen != null ? c.frozen : "—";
+    $("#tmDead").textContent = c.dead != null ? c.dead : "—";
+    renderTames();
+  }).catch(function (e) {
+    $("#tmTable").innerHTML = '<tr><td colspan="6" class="muted">Could not load tames: ' + esc(e.message) + "</td></tr>";
+  });
+}
+function renderTames() {
+  var q = ($("#tmSearch").value || "").toLowerCase();
+  var rows = TAMES.filter(function (t) {
+    if (tameFilter !== "all" && t.status !== tameFilter) return false;
+    if (q && (t.name + " " + t.species).toLowerCase().indexOf(q) < 0) return false;
+    return true;
+  });
+  rows.sort(function (a, b) {
+    var av = a[tameSortKey], bv = b[tameSortKey];
+    if (tameSortKey === "level" || tameSortKey === "first_seen" || tameSortKey === "last_ts") { av = av || 0; bv = bv || 0; }
+    else { av = String(av || "").toLowerCase(); bv = String(bv || "").toLowerCase(); }
+    return (av < bv ? -1 : av > bv ? 1 : 0) * tameSortDir;
+  });
+  $("#tmTable").innerHTML = rows.length ? rows.map(function (t) {
+    var badge = t.status === "dead" ? '<span class="badge plain">dead</span>'
+      : t.status === "frozen" ? '<span class="badge incr">frozen</span>'
+      : '<span class="badge incr">living</span>';
+    var last = "—";
+    if (t.last_ts) {
+      last = fmtWhen(t.last_ts) + ' <span class="muted">' + esc(t.last_kind || "") + "</span>";
+      if (t.status === "dead" && t.death && t.death.by) last += ' <span class="muted">by ' + esc(killerType(t.death.by)) + "</span>";
+    }
+    return "<tr><td><b>" + esc(t.name) + "</b></td>" +
+      "<td>" + esc(t.species) + "</td>" +
+      "<td>" + (t.level != null ? t.level : "—") + "</td>" +
+      "<td>" + badge + "</td>" +
+      "<td>" + fmtWhen(t.first_seen) + "</td>" +
+      "<td>" + last + "</td></tr>";
+  }).join("") : '<tr><td colspan="6" class="muted">No tames match.</td></tr>';
+  $("#tmShowing").textContent = "Showing " + rows.length + " of " + TAMES.length + " tames.";
+}
+$("#tmSearch").addEventListener("input", renderTames);
+document.querySelectorAll("#tmPills .fpill").forEach(function (b) {
+  b.addEventListener("click", function () {
+    tameFilter = b.getAttribute("data-s") || "all";
+    document.querySelectorAll("#tmPills .fpill").forEach(function (x) { x.classList.toggle("active", x === b); });
+    renderTames();
+  });
+});
+document.querySelectorAll("#view-tames th.sortable").forEach(function (th) {
+  th.addEventListener("click", function () {
+    var k = th.getAttribute("data-sk");
+    if (tameSortKey === k) { tameSortDir = -tameSortDir; }
+    else { tameSortKey = k; tameSortDir = 1; }
+    renderTames();
+  });
+});
+
+/* ---------------- files ---------------- */
+function eName(e) { var n = e.name || ""; if (!n && e.path) n = String(e.path).replace(/\/+$/, "").split("/").pop(); return n; }
+function eIsDir(e) {
+  if (eName(e).endsWith("/")) return true;
+  var t = String(e.type || e.kind || "").toLowerCase();
+  if (t) return t.indexOf("dir") >= 0 || t.indexOf("folder") >= 0;
+  return !!e.is_dir;
+}
+function eSize(e) { return e.size != null ? e.size : e.filesize != null ? e.filesize : e.file_size; }
+function eStamp(e) { return e.modified || e.mtime || e.changed || e.created || e.timestamp || ""; }
+function joinPath(dir, name) { return (dir ? dir.replace(/\/+$/, "") : "") + "/" + name.replace(/\/+$/, ""); }
+var curDir = "";
+function renderCrumbs() {
+  var parts = curDir.split("/").filter(Boolean);
+  var html = '<button data-dir="">⌂ home</button>';
+  var acc = "";
+  parts.forEach(function (p) {
+    acc += "/" + p;
+    html += '<span class="sep">/</span><button data-dir="' + esc(acc) + '">' + esc(p) + "</button>";
+  });
+  $("#crumbs").innerHTML = html;
+  document.querySelectorAll("#crumbs button").forEach(function (b) {
+    b.addEventListener("click", function () { loadDir(b.dataset.dir); });
+  });
+}
+function loadDir(dir) {
+  curDir = dir;
+  renderCrumbs();
+  $("#filesError").style.display = "none";
+  $("#filesWall").style.display = /SavedArks$/.test(dir) ? "block" : "none";
+  if (/SavedArks$/.test(dir)) $("#filesWall").innerHTML = "This is the walled folder: Nitrado lists it as empty and refuses its downloads on this Xbox service, even though the world save lives here. The Backups tab shows the snapshots Nitrado does admit to.";
+  $("#filesBody").innerHTML = '<tr><td colspan="4" class="muted">Loading…</td></tr>';
+  api("/api/files?dir=" + encodeURIComponent(dir)).then(function (r) {
+    var entries = (r.entries || []).slice();
+    entries.sort(function (a, b) {
+      var da = eIsDir(a) ? 0 : 1, db = eIsDir(b) ? 0 : 1;
+      return da - db || eName(a).localeCompare(eName(b));
+    });
+    if (!entries.length) {
+      $("#filesBody").innerHTML = '<tr><td colspan="4" class="muted">This folder lists as empty.</td></tr>';
+      return;
+    }
+    $("#filesBody").innerHTML = entries.map(function (e, i) {
+      var n = eName(e), d = eIsDir(e);
+      return "<tr><td>" + (d ? "📁 " : "📄 ") + '<a href="#" data-i="' + i + '" class="fname">' + esc(n.replace(/\/+$/, "")) + "</a></td>" +
+        "<td>" + (d ? "—" : human(eSize(e))) + "</td><td class='muted'>" + esc(eStamp(e)) + "</td>" +
+        "<td>" + (d ? "" : '<button class="btn small" data-dl="' + i + '">Download</button>') + "</td></tr>";
+    }).join("");
+    document.querySelectorAll("#filesBody .fname").forEach(function (a) {
+      a.addEventListener("click", function (ev) {
+        ev.preventDefault();
+        var e = entries[Number(a.dataset.i)];
+        if (eIsDir(e)) loadDir(joinPath(curDir, eName(e)));
+        else downloadFile(joinPath(curDir, eName(e)));
+      });
+    });
+    document.querySelectorAll("#filesBody [data-dl]").forEach(function (b) {
+      b.addEventListener("click", function () {
+        var e = entries[Number(b.dataset.dl)];
+        downloadFile(joinPath(curDir, eName(e)));
+      });
+    });
+  }).catch(function (e) {
+    var b = $("#filesError");
+    b.style.display = "block";
+    b.textContent = "Listing failed: " + e.message;
+    $("#filesBody").innerHTML = "";
+  });
+}
+function downloadFile(full) {
+  toast("Asking Nitrado for " + full.split("/").pop() + "…");
+  fetch("/api/download?file=" + encodeURIComponent(full)).then(function (r) {
+    var ct = r.headers.get("Content-Type") || "";
+    if (!r.ok || ct.indexOf("application/json") >= 0) {
+      return r.json().catch(function () { return { error: "HTTP " + r.status }; }).then(function (j) {
+        throw new Error(j.error || "Download failed");
+      });
+    }
+    return r.blob();
+  }).then(function (blob) {
+    var a = document.createElement("a");
+    a.href = URL.createObjectURL(blob);
+    a.download = full.split("/").pop();
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    setTimeout(function () { URL.revokeObjectURL(a.href); }, 4000);
+  }).catch(function (e) { toast("Download failed: " + e.message, true); });
+}
+function initFiles() {
+  var root = (OV && OV.file_root) || "";
+  var jumps = [["⌂ Home", ""], ["Server root", root], ["Logs", root + "/ShooterGame/Saved/Logs"], ["Saved", root + "/ShooterGame/Saved"], ["World saves (walled)", root + "/ShooterGame/Saved/SavedArks"]];
+  $("#fileJumps").innerHTML = jumps.map(function (j, i) { return '<button class="btn small" data-j="' + i + '">' + esc(j[0]) + "</button>"; }).join("");
+  document.querySelectorAll("#fileJumps [data-j]").forEach(function (b) {
+    b.addEventListener("click", function () { loadDir(jumps[Number(b.dataset.j)][1]); });
+  });
+  loadDir(root);
+}
+
+/* ---------------- logs ---------------- */
+var logDirPath = "", curLog = "";
+function loadLogs() {
+  api("/api/logs").then(function (r) {
+    logDirPath = r.dir;
+    var names = (r.entries || []).map(eName).filter(function (n) { return n.endsWith(".log"); });
+    names.sort(function (a, b) {
+      if (a === "ShooterGame.log") return -1;
+      if (b === "ShooterGame.log") return 1;
+      return b.localeCompare(a);
+    });
+    $("#logList").innerHTML = names.length ? names.map(function (n) {
+      return '<button class="logitem" data-log="' + esc(n) + '">' + esc(n) + "</button>";
+    }).join("") : '<span class="muted">No log files listed.</span>';
+    document.querySelectorAll("#logList .logitem").forEach(function (b) {
+      b.addEventListener("click", function () { openLog(b.dataset.log); });
+    });
+    if (names.length) openLog(names[0]);
+  }).catch(function (e) {
+    $("#logList").innerHTML = '<span class="muted">Could not list logs: ' + esc(e.message) + "</span>";
+  });
+}
+function openLog(name) {
+  curLog = name;
+  document.querySelectorAll("#logList .logitem").forEach(function (b) { b.classList.toggle("active", b.dataset.log === name); });
+  $("#logTitle").textContent = name;
+  $("#logView").textContent = "Loading…";
+  fetch("/api/logfile?name=" + encodeURIComponent(name)).then(function (r) {
+    return r.text().then(function (t) {
+      $("#logView").textContent = r.ok ? t : "Could not load this log (" + t.slice(0, 200) + ")";
+      var v = $("#logView");
+      v.scrollTop = v.scrollHeight;
+    });
+  }).catch(function (e) { $("#logView").textContent = "Could not load: " + e.message; });
+}
+$("#logRefresh").addEventListener("click", function () { if (curLog) openLog(curLog); });
+$("#logDownload").addEventListener("click", function () { if (curLog && logDirPath) downloadFile(logDirPath + "/" + curLog); });
+
+/* ---------------- backups ---------------- */
+function saveStamp(name) {
+  var m = /(\d{2})\.(\d{2})\.(\d{4})_(\d{2})\.(\d{2})\.(\d{2})/.exec(name || "");
+  if (!m) return 0;
+  return Date.UTC(Number(m[3]), Number(m[2]) - 1, Number(m[1]), Number(m[4]), Number(m[5]), Number(m[6])) / 1000;
+}
+function loadBackups() {
+  api("/api/backups").then(function (r) {
+    var gsRows = [];
+    Object.keys(r.gameserver || {}).forEach(function (folder) {
+      (r.gameserver[folder] || []).forEach(function (b) { gsRows.push(b); });
+    });
+    gsRows.sort(function (a, b) { return (b.backup_number || 0) - (a.backup_number || 0); });
+    $("#bkGs").innerHTML = gsRows.length ? gsRows.map(function (b) {
+      var master = b.backup_type === "master";
+      return "<tr><td class='mono'>#" + esc(b.backup_number) + "</td><td><span class='badge " + (master ? "master" : "incr") + "'>" + esc(b.backup_type || "") + "</span></td><td>" + fmtTs(b.backup_timestamp) + "</td><td>" + human(b.backup_file_size != null ? b.backup_file_size : b.backup_size) + "</td></tr>";
+    }).join("") : '<tr><td colspan="4" class="muted">None listed.</td></tr>';
+    var saves = (r.savegames || []).slice().sort(function (a, b) { return saveStamp(b.name) - saveStamp(a.name); });
+    $("#bkSaves").innerHTML = saves.length ? saves.map(function (s) {
+      return "<tr><td class='mono'>" + esc(s.name) + "</td><td>" + fmtTs(saveStamp(s.name)) + "</td><td>" + human(s.filesize) + "</td></tr>";
+    }).join("") : '<tr><td colspan="3" class="muted">None listed.</td></tr>';
+    var dbRows = [];
+    Object.keys(r.database || {}).forEach(function (folder) {
+      (r.database[folder] || []).forEach(function (b) { dbRows.push(b); });
+    });
+    dbRows.sort(function (a, b) { return (b.backup_timestamp || 0) - (a.backup_timestamp || 0); });
+    $("#bkDb").innerHTML = dbRows.length ? dbRows.map(function (b) {
+      return "<tr><td class='mono'>" + esc(b.backup_file) + "</td><td>" + fmtTs(b.backup_timestamp) + "</td><td>" + human(b.backup_size) + "</td></tr>";
+    }).join("") : '<tr><td colspan="3" class="muted">None listed.</td></tr>';
+  }).catch(function (e) {
+    $("#bkGs").innerHTML = '<tr><td colspan="4" class="muted">Could not load backups: ' + esc(e.message) + "</td></tr>";
+  });
+}
+
+/* ---------------- settings ---------------- */
+function renderTree(v, depth) {
+  depth = depth || 0;
+  if (v === null || v === undefined) return '<span class="muted">—</span>';
+  if (typeof v !== "object") {
+    if (typeof v === "boolean") return '<span class="chip ' + (v ? "on" : "off") + '">' + (v ? "ON" : "OFF") + "</span>";
+    return esc(String(v));
+  }
+  if (Array.isArray(v)) {
+    if (!v.length) return '<span class="muted">(empty)</span>';
+    if (v.every(function (x) { return typeof x !== "object"; })) return v.map(function (x) { return '<span class="chip">' + esc(String(x)) + "</span>"; }).join("");
+    if (depth > 5) return '<span class="muted">[' + v.length + " items]</span>";
+    return v.map(function (x) { return '<div class="treenode">' + renderTree(x, depth + 1) + "</div>"; }).join("");
+  }
+  var keys = Object.keys(v);
+  if (!keys.length) return '<span class="muted">(empty)</span>';
+  if (keys.every(function (k) { return typeof v[k] !== "object"; })) {
+    return '<table class="kv">' + keys.map(function (k) { return "<tr><td class='k'>" + esc(k) + "</td><td>" + renderTree(v[k], depth + 1) + "</td></tr>"; }).join("") + "</table>";
+  }
+  return keys.map(function (k) {
+    var val = v[k];
+    if (val && typeof val === "object") {
+      return '<details class="tnode"><summary>' + esc(k) + ' <span class="muted">' + (Array.isArray(val) ? "[" + val.length + "]" : "") + '</span></summary><div class="tbody">' + renderTree(val, depth + 1) + "</div></details>";
+    }
+    return '<div class="trow"><span class="k">' + esc(k) + "</span>" + renderTree(val, depth + 1) + "</div>";
+  }).join("");
+}
+function loadSettings() {
+  api("/api/settings").then(function (s) {
+    var html = "";
+    [["Current settings — from the gameserver", s.from_gameserver], ["Settings endpoint", s.current], ["Setting definitions (sets)", s.sets]].forEach(function (sec) {
+      if (sec[1] === null || sec[1] === undefined) return;
+      html += '<div class="panel" style="margin-bottom:16px"><h3>' + esc(sec[0]) + "</h3>" + renderTree(sec[1]) + "</div>";
+    });
+    $("#settingsWrap").innerHTML = html || '<div class="panel"><span class="muted">Nitrado returned no settings data.</span></div>';
+  }).catch(function (e) {
+    $("#settingsWrap").innerHTML = '<div class="panel"><span class="muted">Could not load settings: ' + esc(e.message) + "</span></div>";
+  });
+}
+
+/* ---------------- boot ---------------- */
+function tickClock() { $("#clock").textContent = new Date().toLocaleTimeString([], { hour: "numeric", minute: "2-digit", second: "2-digit" }); }
+tickClock();
+setInterval(tickClock, 1000);
+loadOverview();
+setInterval(function () {
+  loadOverview().then(function () { if (curView === "players") renderPlayers(); });
+}, 30000);
+</script>
+</body>
+</html>

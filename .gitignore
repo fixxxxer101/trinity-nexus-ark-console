@@ -1,0 +1,7 @@
+__pycache__/
+.venv/
+*.log
+config.json
+save/
+arkmap/web/data.json
+arkmap/web/status.json
