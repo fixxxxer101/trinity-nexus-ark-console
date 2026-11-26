@@ -1194,17 +1194,27 @@ function loadDeaths() {
 }
 
 /* ---------------- repeat offenders ----------------
-   The unnamed killers, tracked by the numeric ID the game gave
-   them. Kill one in-game, come back here, and record what it was:
-   the identification hangs it as a trophy and its name replaces
-   "unnamed creature" everywhere the deaths are shown. */
+   The nemesis board, two kinds. The unnamed killers are tracked
+   by the numeric ID the game gave them — identity certain,
+   species unknown. The named ones are tracked by their kills:
+   a wild creature's level never changes, so a species at one
+   level with 3+ kills (players and tames counted together) is
+   most likely a single individual, marked "presumed". Kill one
+   in-game, come back here, and record it: the identification
+   hangs it as a trophy (and for the unnamed ones, its name then
+   replaces "unnamed creature" everywhere the deaths are shown). */
 var OFFENDERS = {};
 var OFFENDER_LIST = [];
+function rebuildOffenderMap() {
+  OFFENDERS = {};
+  OFFENDER_LIST.forEach(function (o) {
+    if (o.kind === "sid" && o.identified) OFFENDERS[o.sid] = o.identified;
+  });
+}
 function loadOffenders() {
   api("/api/offenders").then(function (r) {
     OFFENDER_LIST = r.offenders || [];
-    OFFENDERS = {};
-    OFFENDER_LIST.forEach(function (o) { if (o.identified) OFFENDERS[o.sid] = o.identified; });
+    rebuildOffenderMap();
     renderOffenders();
     if (DEATHS.length) renderDeaths();
   }).catch(function () { /* the panel just stays empty */ });
@@ -1221,23 +1231,37 @@ function renderOffenders() {
   if (!box) return;
   if (!OFFENDER_LIST.length) {
     box.innerHTML = '<div class="panel" style="margin-bottom:16px"><h3>Repeat Offenders</h3>' +
-      '<div class="muted">No unnamed creatures on record yet. When something kills a player or a tame ' +
+      '<div class="muted">No nemeses on record yet. When something kills a player or a tame ' +
       "and the log keeps its name back, it is tracked here by the ID the game gave it — " +
-      "kill it and you can hang it here as a trophy.</div></div>";
+      "and a named creature that kills three or more of yours at the same level earns a " +
+      "place here as a presumed individual. Kill one and you can hang it here as a trophy.</div></div>";
     return;
   }
   var today = new Date().toISOString().slice(0, 10);
   var players = [];
   DEATHS.forEach(function (e) { if (e.kind === "player" && players.indexOf(e.who) < 0) players.push(e.who); });
-  var cards = OFFENDER_LIST.map(function (o) {
+  var cards = OFFENDER_LIST.map(function (o, idx) {
     var idf = o.identified;
-    var title = idf && idf.species ? esc(idf.species) : "Creature #…" + String(o.sid).slice(-3);
-    var badges = (o.repeat ? ' <span class="badge incr">repeat offender</span>' : "") +
-      (idf ? ' <span class="badge plain">trophy</span>' : "");
+    var presumed = o.kind === "presumed";
+    var title, badges, sub;
+    if (presumed) {
+      title = esc(o.species);
+      badges = ' <span class="badge incr">presumed — most likely one creature</span>' +
+        (idf ? ' <span class="badge plain">trophy</span>' : "");
+      sub = "Lvl " + num(o.level) + " · " + num(o.player_kills) + " player" +
+        (o.player_kills === 1 ? "" : "s") + ", " + num(o.tame_kills) + " tame" +
+        (o.tame_kills === 1 ? "" : "s") +
+        " · first seen " + fmtWhen(o.first_ts) + " · last seen " + fmtWhen(o.last_ts);
+    } else {
+      title = idf && idf.species ? esc(idf.species) : "Creature #…" + String(o.sid).slice(-3);
+      badges = (o.repeat ? ' <span class="badge incr">repeat offender</span>' : "") +
+        (idf ? ' <span class="badge plain">trophy</span>' : "");
+      sub = "Game ID " + num(o.sid) +
+        " · first seen " + fmtWhen(o.first_ts) + " · last seen " + fmtWhen(o.last_ts);
+    }
     var head = '<div class="panel" style="margin-bottom:16px"><h3>' + title + " — " +
       o.kills + " kill" + (o.kills === 1 ? "" : "s") + badges + "</h3>" +
-      '<div class="muted" style="margin-bottom:8px">Game ID ' + num(o.sid) +
-      " · first seen " + fmtWhen(o.first_ts) + " · last seen " + fmtWhen(o.last_ts) + "</div>" +
+      '<div class="muted" style="margin-bottom:8px">' + sub + "</div>" +
       o.victims.map(offenderVictimLine).join("");
     var trophy = "";
     if (idf) {
@@ -1246,25 +1270,32 @@ function renderOffenders() {
         (idf.killed_by ? ' — killed by <b>' + esc(idf.killed_by) + "</b>" : "") +
         (idf.killed_date ? ' <span class="muted">on ' + esc(idf.killed_date) + "</span>" : "") +
         (idf.note ? '<div class="muted">' + esc(idf.note) + "</div>" : "") +
-        ' <button class="btn small" data-offedit="' + num(o.sid) + '">Edit</button></div>';
+        ' <button class="btn small" data-offedit="' + idx + '">Edit</button></div>';
     }
-    var form = '<div id="offform-' + num(o.sid) + '" style="margin-top:10px' + (idf ? ";display:none" : "") + '">' +
+    var formSpecies = idf ? (idf.species || "") : (presumed ? o.species : "");
+    var formLevel = idf && idf.level ? idf.level : (presumed ? o.level : "");
+    var form = '<div id="offform-' + idx + '" style="margin-top:10px' + (idf ? ";display:none" : "") + '">' +
       '<div class="muted" style="margin-bottom:6px">' +
-      (idf ? "Update the identification:" : "Killed it? The date fills itself — and the killer too, when only one of you is online. What it was and its level are the only blanks left:") + "</div>" +
-      '<input id="off-species-' + num(o.sid) + '" type="text" placeholder="What was it? (e.g. Alpha Karkinos)" value="' + (idf ? esc(idf.species || "") : "") + '" style="margin-right:6px">' +
-      '<input id="off-level-' + num(o.sid) + '" type="number" min="1" max="2000" placeholder="Its level" value="' + (idf && idf.level ? num(idf.level) : "") + '" style="width:100px;margin-right:6px">' +
-      '<input id="off-by-' + num(o.sid) + '" type="text" list="offPlayers" placeholder="Killed by" value="' + (idf ? esc(idf.killed_by || "") : "") + '" style="margin-right:6px">' +
-      '<input id="off-date-' + num(o.sid) + '" type="date" value="' + (idf && idf.killed_date ? esc(idf.killed_date) : today) + '" style="margin-right:6px">' +
-      '<input id="off-note-' + num(o.sid) + '" type="text" placeholder="Note (optional)" value="' + (idf ? esc(idf.note || "") : "") + '" style="margin-right:6px">' +
-      '<button class="btn small" data-offsave="' + num(o.sid) + '">' + (idf ? "Update trophy" : "We killed it — hang the trophy") + "</button>" +
-      (idf ? ' <button class="btn small" data-offclear="' + num(o.sid) + '">Remove identification</button>' : "") +
-      '<span class="muted" id="off-status-' + num(o.sid) + '" style="margin-left:8px"></span></div>';
+      (idf ? "Update the identification:" :
+        presumed ? "Killed it? You already know what this one is — the blanks left are who finally killed it, and when:" :
+        "Killed it? The date fills itself — and the killer too, when only one of you is online. What it was and its level are the only blanks left:") + "</div>" +
+      '<input id="off-species-' + idx + '" type="text" placeholder="What was it? (e.g. Alpha Karkinos)" value="' + esc(formSpecies) + '" style="margin-right:6px">' +
+      '<input id="off-level-' + idx + '" type="number" min="1" max="2000" placeholder="Its level" value="' + (formLevel ? num(formLevel) : "") + '" style="width:100px;margin-right:6px">' +
+      '<input id="off-by-' + idx + '" type="text" list="offPlayers" placeholder="Killed by" value="' + (idf ? esc(idf.killed_by || "") : "") + '" style="margin-right:6px">' +
+      '<input id="off-date-' + idx + '" type="date" value="' + (idf && idf.killed_date ? esc(idf.killed_date) : today) + '" style="margin-right:6px">' +
+      '<input id="off-note-' + idx + '" type="text" placeholder="Note (optional)" value="' + (idf ? esc(idf.note || "") : "") + '" style="margin-right:6px">' +
+      '<button class="btn small" data-offsave="' + idx + '">' + (idf ? "Update trophy" : "We killed it — hang the trophy") + "</button>" +
+      (idf ? ' <button class="btn small" data-offclear="' + idx + '">Remove identification</button>' : "") +
+      '<span class="muted" id="off-status-' + idx + '" style="margin-left:8px"></span></div>';
     return head + trophy + form + "</div>";
   }).join("");
   box.innerHTML = '<div class="panel" style="margin-bottom:16px"><h3>Repeat Offenders</h3>' +
-    '<div class="muted">Creatures the logs could not name, tracked by the ID the game gave each one. ' +
-    "When you kill one, record what it was here — it becomes a trophy, and its name shows " +
-    "everywhere that creature's kills are listed.</div></div>" +
+    '<div class="muted">Two kinds of nemesis. The unnamed ones are tracked by the ID the game gave ' +
+    "each one — that identity is certain, but the log never learned what they are. The named ones are " +
+    "tracked by their kills: a wild creature's level never changes in its life, so the same species at " +
+    "the same level killing three or more of yours — players and tames counted together — is most " +
+    "likely a single individual, and its card says so: presumed. When you kill one, record it here — " +
+    "it becomes a trophy.</div></div>" +
     '<datalist id="offPlayers">' + players.map(function (p) { return "<option value=\"" + esc(p) + "\">"; }).join("") + "</datalist>" +
     cards;
   box.querySelectorAll("[data-offsave]").forEach(function (b) {
@@ -1294,16 +1325,18 @@ function renderOffenders() {
     }).catch(function () {});
   }
 }
-function saveOffender(sid) {
-  var status = $("#off-status-" + sid);
+function saveOffender(idx) {
+  var o = OFFENDER_LIST[idx];
+  if (!o) return;
+  var status = $("#off-status-" + idx);
   var body = {
-    sid: sid,
-    species: ($("#off-species-" + sid) || {}).value || "",
-    level: ($("#off-level-" + sid) || {}).value || "",
-    killed_by: ($("#off-by-" + sid) || {}).value || "",
-    killed_date: ($("#off-date-" + sid) || {}).value || "",
-    note: ($("#off-note-" + sid) || {}).value || ""
+    species: ($("#off-species-" + idx) || {}).value || "",
+    level: ($("#off-level-" + idx) || {}).value || "",
+    killed_by: ($("#off-by-" + idx) || {}).value || "",
+    killed_date: ($("#off-date-" + idx) || {}).value || "",
+    note: ($("#off-note-" + idx) || {}).value || ""
   };
+  if (o.kind === "presumed") body.key = o.key; else body.sid = o.sid;
   if (!body.species.trim()) {
     if (status) status.textContent = "Name what it was first.";
     return;
@@ -1312,19 +1345,20 @@ function saveOffender(sid) {
   api("/api/offenders", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) })
     .then(function (r) {
       OFFENDER_LIST = r.offenders || [];
-      OFFENDERS = {};
-      OFFENDER_LIST.forEach(function (o) { if (o.identified) OFFENDERS[o.sid] = o.identified; });
+      rebuildOffenderMap();
       renderOffenders();
       renderDeaths();
     })
     .catch(function (e) { if (status) status.textContent = "Save failed: " + e.message; });
 }
-function clearOffender(sid) {
-  api("/api/offenders", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ sid: sid, species: "" }) })
+function clearOffender(idx) {
+  var o = OFFENDER_LIST[idx];
+  if (!o) return;
+  var body = o.kind === "presumed" ? { key: o.key, species: "" } : { sid: o.sid, species: "" };
+  api("/api/offenders", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) })
     .then(function (r) {
       OFFENDER_LIST = r.offenders || [];
-      OFFENDERS = {};
-      OFFENDER_LIST.forEach(function (o) { if (o.identified) OFFENDERS[o.sid] = o.identified; });
+      rebuildOffenderMap();
       renderOffenders();
       renderDeaths();
     })

@@ -38,7 +38,7 @@ from datetime import datetime, timezone
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
-VERSION = "2.15.0"
+VERSION = "2.16.0"
 
 APP_DIR = Path(__file__).resolve().parent
 CONFIG_DIR = Path.home() / ".arkmap"
@@ -1900,6 +1900,10 @@ def console_names() -> dict:
 # ------------------------------------------------------------ offenders --
 OFFENDERS_PATH = SAVE_DIR / "offenders.json"
 _OFFENDERS_LOCK = threading.Lock()
+# A named species at one level with this many kills (players and
+# tames counted together) is listed as a presumed individual
+# nemesis - Clint's rule, 2026-11-26.
+NEMESIS_MIN_KILLS = 3
 
 
 def _load_offenders() -> dict:
@@ -1916,64 +1920,114 @@ def _load_offenders() -> dict:
     return {"version": 1, "identified": {}}
 
 
+def _killer_species(e) -> str | None:
+    """The killer's species display name when the log named one:
+    the event's 'by' text minus its article ('a Triceratops' ->
+    'Triceratops'), accepted only if the creature name table knows
+    it as a breed - a pet's name or a garbled string is not one."""
+    by = (e.get("by") or "").strip()
+    low = by.lower()
+    for art in ("a ", "an "):
+        if low.startswith(art):
+            by = by[len(art):].strip()
+            break
+    return by if by and by.lower() in _SPECIES else None
+
+
 def console_offenders() -> dict:
-    """Every unnamed creature that has killed on this server, grouped
-    by its KillerSID: how many kills, who the victims were, and
-    whether the family has identified it and hung it as a trophy.
-    Sorted worst-first; 'repeat' marks the ones with 2+ kills."""
+    """The nemesis board, in two kinds. (1) Unnamed killers the log
+    identified only by a numeric KillerSID: the identity is certain
+    (the same SID is the same creature), the species unknown until
+    the family hangs a trophy. (2) Presumed individuals: a named
+    species at one level with NEMESIS_MIN_KILLS or more kills,
+    players and tames counted together - a wild creature's level
+    never changes in its life, so the same species at the same
+    level killing again and again is most likely one individual
+    (Clint's rule, 2026-11-26; the card says 'presumed' because
+    two creatures can share a level). Sorted worst-first; 'repeat'
+    marks the ones with 2+ kills."""
     data = _load_deaths()
     names = _player_names()
     identified = _load_offenders().get("identified", {})
-    by_sid: dict = {}
-    for e in data["events"]:
-        if not e.get("by_sid"):
-            continue
-        sid = int(e["by_sid"])
-        slot = by_sid.setdefault(sid, {"sid": sid, "kills": 0,
-                                       "victims": []})
-        slot["kills"] += 1
+
+    def victim_of(e):
         victim = {"who": e.get("who", ""), "kind": e.get("kind"),
                   "ts": e.get("ts"), "who_lvl": e.get("who_lvl")}
         if e.get("kind") == "player":
             victim["player"] = _resolve_name(e.get("who", ""), names)
         if e.get("species"):
             victim["species"] = e["species"]
-        slot["victims"].append(victim)
-    out = []
-    for sid, slot in by_sid.items():
+        return victim
+
+    by_sid: dict = {}
+    by_kind: dict = {}
+    for e in data["events"]:
+        if e.get("by_sid"):
+            sid = int(e["by_sid"])
+            slot = by_sid.setdefault(sid, {"kind": "sid", "sid": sid,
+                                           "key": str(sid), "kills": 0,
+                                           "victims": []})
+            slot["kills"] += 1
+            slot["victims"].append(victim_of(e))
+            continue
+        species = _killer_species(e)
+        lvl = e.get("by_lvl")
+        if species and lvl:
+            gkey = (species, int(lvl))
+            slot = by_kind.setdefault(gkey, {
+                "kind": "presumed",
+                "key": f"presumed:{species}|{int(lvl)}",
+                "species": species, "level": int(lvl), "kills": 0,
+                "player_kills": 0, "tame_kills": 0, "victims": []})
+            slot["kills"] += 1
+            if e.get("kind") == "player":
+                slot["player_kills"] += 1
+            elif e.get("kind") == "tame":
+                slot["tame_kills"] += 1
+            slot["victims"].append(victim_of(e))
+    out = list(by_sid.values())
+    out += [s for s in by_kind.values()
+            if s["kills"] >= NEMESIS_MIN_KILLS]
+    for slot in out:
         slot["victims"].sort(key=lambda v: v.get("ts") or 0)
         slot["first_ts"] = slot["victims"][0]["ts"] if slot["victims"] else None
         slot["last_ts"] = slot["victims"][-1]["ts"] if slot["victims"] else None
         slot["repeat"] = slot["kills"] >= 2
-        slot["identified"] = identified.get(str(sid)) or None
-        out.append(slot)
+        slot["identified"] = identified.get(slot["key"]) or None
     out.sort(key=lambda s: (-s["kills"], s["first_ts"] or 0))
     return {"ok": True, "offenders": out}
 
 
 def save_offender(sid, species, killed_by, killed_date, note,
-                  level="") -> dict:
-    """Record the family's identification of one unnamed killer -
-    what it turned out to be, who killed it, and when - which hangs
-    it as a trophy. A blank species clears the identification (the
-    creature goes back to unidentified). Returns the fresh
-    console_offenders()."""
-    try:
-        sid = int(sid)
-    except Exception:
-        raise ApiError("No creature ID given.")
+                  level="", key=None) -> dict:
+    """Record the family's identification of one offender - what it
+    turned out to be, who killed it, and when - which hangs it as
+    a trophy. A blank species clears the identification (the
+    creature goes back to unidentified). Unnamed killers are keyed
+    by their KillerSID; a presumed individual is keyed by its
+    'presumed:<Species>|<Level>' group key instead. Returns the
+    fresh console_offenders()."""
+    if key:
+        store_key = str(key)
+        if not store_key.startswith("presumed:"):
+            raise ApiError("Unknown offender key.")
+    else:
+        try:
+            store_key = str(int(sid))
+        except Exception:
+            raise ApiError("No creature ID given.")
     species = (species or "").strip()
     with _OFFENDERS_LOCK:
         data = _load_offenders()
         if not species:
-            data["identified"].pop(str(sid), None)
+            data["identified"].pop(store_key, None)
         else:
             try:
                 lvl = int(str(level).strip())
                 lvl = lvl if 1 <= lvl <= 2000 else ""
             except Exception:
                 lvl = ""
-            data["identified"][str(sid)] = {
+            data["identified"][store_key] = {
                 "species": species[:80],
                 "level": lvl,
                 "killed_by": (killed_by or "").strip()[:60],
@@ -2620,7 +2674,8 @@ class Handler(SimpleHTTPRequestHandler):
                     str(payload.get("killed_by") or ""),
                     str(payload.get("killed_date") or ""),
                     str(payload.get("note") or ""),
-                    payload.get("level")))
+                    payload.get("level"),
+                    key=payload.get("key")))
             else:
                 self._send_json({"ok": False, "error": "Unknown API route."}, 404)
         except RconError as exc:
