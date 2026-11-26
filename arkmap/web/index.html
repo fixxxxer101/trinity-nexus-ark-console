@@ -180,7 +180,7 @@
     </div>
   </div>
   <button class="navbtn active" data-view="overview">Overview</button>
-  <button class="navbtn" data-view="map">Live Map</button>
+  <button class="navbtn" data-view="map">Resource Map</button>
   <button class="navbtn" data-view="players">Players</button>
   <button class="navbtn" data-view="names">Names</button>
   <button class="navbtn" data-view="deaths">Deaths</button>
@@ -249,7 +249,7 @@
 
   <!-- ================= MAP ================= -->
   <section class="view" id="view-map">
-    <iframe id="mapFrame" title="Valguero live map"></iframe>
+    <iframe id="mapFrame" title="Valguero resource map"></iframe>
   </section>
 
   <!-- ================= PLAYERS ================= -->
@@ -312,7 +312,7 @@
       <h3>Death Log</h3>
       <table class="grid"><thead><tr><th class="sortable" data-sk="ts">When ⇅</th><th class="sortable" data-sk="who">Who ⇅</th><th class="sortable" data-sk="by">Killed by ⇅</th><th>Source log</th></tr></thead><tbody id="deathTable"><tr><td colspan="4" class="muted">Loading…</td></tr></tbody></table>
       <div class="muted" id="deathShowing" style="margin-top:8px"></div>
-      <p class="muted" style="margin-bottom:0">The logs record who died, when, and what killed them — but not where. Death locations live in the world save, which is the file Nitrado won't hand over; if that ever opens, these get pins on the map.</p>
+      <p class="muted" style="margin-bottom:0">The logs record who died, when, and what killed them — but not where. Death locations live in the world save, which is the file Nitrado won't hand over on Xbox services.</p>
     </div>
   </section>
 
@@ -759,15 +759,12 @@ function renderOverview() {
     $("#stDaySub").textContent = "no tribe-log stamps yet";
   }
   var st = OV.state || {};
-  if (st.walled) {
-    $("#stSave").textContent = "Held by Nitrado";
-    $("#stSaveSub").textContent = "watching every new backup";
-  } else if (OV.status && OV.status.ok) {
+  if (OV.status && OV.status.ok) {
     $("#stSave").textContent = "Live";
     $("#stSaveSub").textContent = OV.status.message || "";
   } else {
-    $("#stSave").textContent = "Waiting";
-    $("#stSaveSub").textContent = (OV.status && OV.status.message) || "";
+    $("#stSave").textContent = "Held by Nitrado";
+    $("#stSaveSub").textContent = "not released on Xbox services";
   }
   var facts = [];
   function fact(k, v) { if (v != null && v !== "") facts.push("<tr><td class='k'>" + esc(k) + "</td><td>" + esc(v) + "</td></tr>"); }
@@ -791,12 +788,8 @@ function renderOverview() {
     return '<span class="chip ' + (feats[k] ? "on" : "off") + '">' + esc(k.replace(/^has_/, "").replace(/_/g, " ")) + (feats[k] ? "" : " · off") + "</span>";
   }).join("") : '<span class="muted">No feature data returned.</span>';
   var wb = [];
-  if (st.walled) {
-    wb.push("Nitrado's API will list this Xbox server's world-save backups but refuses to hand over the file itself (HTTP 500 on that one folder — everything else downloads fine). The web panel is restore-only, and the API has no backup-download route at all.");
-    wb.push("So this console's map waits, honestly: the app checks <b>every new savegame backup</b> the moment it appears and tries it exactly once" + (st.watch_tried ? " — latest tried: <span class='mono'>" + esc(st.watch_tried) + "</span>" : "") + ". A support ticket went to Nitrado on Nov 25, 2026. If they open the folder, the map fills in by itself — nothing to redo here.");
-  } else {
-    wb.push("The world save is flowing. Latest source: <span class='mono'>" + esc(st.source_name || "—") + "</span>.");
-  }
+  wb.push("Nitrado's API will list this Xbox server's world-save backups but refuses to hand over the file itself (HTTP 500 on that one folder — everything else downloads fine). The web panel is restore-only, and the API has no backup-download route at all. A support ticket went to Nitrado on Nov 25, 2026.");
+  wb.push("So the console doesn't pull the save at all. The map is the <b>Resource Map</b> instead: a static atlas built from the ARK wiki's own Valguero data — resources, veins, caves, artifacts, drops, crates, nests and dino spawn zones — that needs nothing from the save.");
   if (st.backup_probed) wb.push("Gameserver backup download probe: tried for backup #" + esc(st.backup_probed) + " — no route exists.");
   $("#wallBody").innerHTML = wb.map(function (p) { return "<p style='margin:0 0 10px'>" + p + "</p>"; }).join("");
 }

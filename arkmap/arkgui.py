@@ -49,8 +49,8 @@ HERE = Path(__file__).resolve().parent
 ICO_PATH = HERE.parent / "ArkMap.ico"
 EMBLEM_PATH = HERE / "emblem.png"
 
-# The window's own remembered settings (size/position, last tab,
-# map-polling toggle) - private per-PC state in the app's save/
+# The window's own remembered settings (size/position, last tab) -
+# private per-PC state in the app's save/
 # folder, never part of the shipped software, never touched by the
 # updater (which leaves save/ alone by design).
 GUI_SETTINGS_PATH = arkmap.SAVE_DIR / "gui_settings.json"
@@ -383,10 +383,8 @@ class ConsoleGui:
         self._names_inner = None
         self._names_status_label = None
         self._last_stats: dict = {}
-        # Remembered window settings: applied before the build so
-        # the map-polling flag is set before the backend starts.
+        # Remembered window settings, applied before the build.
         self.settings = _load_gui_settings()
-        arkmap.set_map_polling(bool(self.settings.get("map_polling", True)))
         # GUI refresh timer (this window only - the web console has
         # its own): how often the stats poller re-renders the tabs.
         # 0 is Off. Anything unrecognised falls back to the 4-second
@@ -403,7 +401,6 @@ class ConsoleGui:
         self._wrap_labels: list = []
         self._player_inners: dict = {}
         self._player_canvases: dict = {}
-        self.map_poll_var = None
         self._build()
 
     # ---------------------------------------------------------- build --
@@ -476,18 +473,6 @@ class ConsoleGui:
         self.refresh_btn = btn("Refresh Now", self.refresh_now)
         self.update_btn = btn("Update", self.check_for_updates)
         btn("Hide to Tray", self.hide)
-        # Map polling toggle: on Xbox services Nitrado never hands
-        # over the world save, so the save pull is pure retry noise -
-        # this stops it (the log scan behind the trackers keeps
-        # running). Remembered across launches.
-        self.map_poll_var = tk.BooleanVar(
-            value=arkmap.map_polling_enabled())
-        tk.Checkbutton(btns, text="Map polling", variable=self.map_poll_var,
-                       command=self._on_map_poll_toggle,
-                       bg=BG, fg=TEXT, activebackground=BG,
-                       activeforeground=TEXT, selectcolor=PANEL,
-                       font=("Segoe UI", 10), cursor="hand2").pack(
-                           side="left", padx=(4, 0))
         # GUI refresh timer: how often this window re-reads and
         # re-renders its tabs. Every re-render used to land every
         # 4 seconds and throw the reader back to the top of the tab;
@@ -519,9 +504,6 @@ class ConsoleGui:
             text="Minimizing or closing this window sends the console "
                  "to the system tray - it keeps running. Double-click "
                  "the tray icon to bring it back; right-click it to quit. "
-                 "Map polling pulls the world save for the map; on Xbox "
-                 "Nitrado never releases it, so it can be switched off - "
-                 "deaths, tames and players keep tracking either way. "
                  "Refresh is this window's own update timer: set it to "
                  "Off and the window stops re-drawing itself (Refresh "
                  "Now still works) and never throws you back to the top "
@@ -569,7 +551,6 @@ class ConsoleGui:
         except Exception:
             pass
         self.settings["tab"] = self._tab
-        self.settings["map_polling"] = arkmap.map_polling_enabled()
         self.settings["poll_seconds"] = self._poll_seconds
         _save_gui_settings(self.settings)
 
@@ -579,14 +560,6 @@ class ConsoleGui:
                 self._poll_seconds = secs
                 break
         self._persist_settings()
-
-    def _on_map_poll_toggle(self) -> None:
-        arkmap.set_map_polling(bool(self.map_poll_var.get()))
-        self._persist_settings()
-        if arkmap.map_polling_enabled():
-            # Turning it back on: check for a save right away rather
-            # than waiting for the next timed cycle.
-            self.refresh_now()
 
     def _build_all_tab(self, parent) -> None:
         tk = self.tk

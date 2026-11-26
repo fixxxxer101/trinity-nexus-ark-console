@@ -38,7 +38,7 @@ from datetime import datetime, timezone
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
-VERSION = "2.13.2"
+VERSION = "2.14.0"
 
 APP_DIR = Path(__file__).resolve().parent
 CONFIG_DIR = Path.home() / ".arkmap"
@@ -1191,8 +1191,7 @@ def console_overview(cfg: dict) -> dict:
         "day": console_day(),
         "config": {"service_id": cfg.get("service_id"),
                    "interval_min": cfg.get("interval_min"),
-                   "port": cfg.get("port"),
-                   "map_polling": map_polling_enabled()},
+                   "port": cfg.get("port")},
     }
 
 
@@ -3445,41 +3444,22 @@ def start_server(cfg: dict) -> ThreadingHTTPServer:
 
 _BACKEND_LOCK = threading.Lock()
 
-# World-save (map) polling switch, flipped by the desktop window's
-# toggle and remembered in the GUI's settings file. On Xbox services
-# Nitrado never hands over the save, so polling for it is pure retry
-# noise; turning it off skips refresh_once (the save pull + map
-# build) while the log scan - deaths, tames, players - keeps running.
-_MAP_POLL: dict = {"enabled": True}
-
-
-def map_polling_enabled() -> bool:
-    return bool(_MAP_POLL["enabled"])
-
-
-def set_map_polling(enabled: bool) -> None:
-    _MAP_POLL["enabled"] = bool(enabled)
-    log(f"Map polling {'enabled' if enabled else 'disabled'} "
-        f"(world-save pull {'will run' if enabled else 'skipped'}; "
-        f"log scanning continues).")
-
-
 def backend_cycle(cfg: dict) -> None:
-    """One refresh + log scan, serialized so the GUI's Refresh Now
-    button and the timed loop never run at the same time."""
+    """One log scan, serialized so the GUI's Refresh Now button and
+    the timed loop never run at the same time. (The world-save pull
+    that used to run here fed only the old live map; the Resource
+    Map is a static atlas and needs nothing from the save, so the
+    pull and its polling toggle were removed in v2.14.0. The scan -
+    deaths, tames, players - is untouched.)"""
     with _BACKEND_LOCK:
-        if map_polling_enabled():
-            refresh_once(cfg)
         _scan_logs_quietly(cfg)
 
 
 def run_backend(cfg: dict, stop: threading.Event, interval: int) -> None:
-    """The refresh loop: one forced cycle up front, then a cycle every
-    interval until the stop event is set (the terminal path passes an
-    event that never fires and relies on Ctrl+C)."""
+    """The refresh loop: one scan up front, then a scan every
+    interval until the stop event is set (the terminal path passes
+    an event that never fires and relies on Ctrl+C)."""
     with _BACKEND_LOCK:
-        if map_polling_enabled():
-            refresh_once(cfg, force=True)
         _scan_logs_quietly(cfg)
     while not stop.wait(interval):
         backend_cycle(cfg)

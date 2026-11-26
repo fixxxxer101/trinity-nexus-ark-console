@@ -15,7 +15,7 @@ One finding worth documenting: downloading the world save (`ShooterGame/Saved/Sa
 **Web console (11 views)**
 
 - **Overview** — live status, who is in the world, server-day counter (estimated from tribe-log day stamps, with the last confirmed stamp shown), connect address, full service facts, and start / stop / restart behind confirm dialogs
-- **Live Map** — the calibrated Valguero map, ready for save data
+- **Resource Map** — the calibrated Valguero map as a static atlas from the ARK wiki's own data: checkbox layers for resources of all types, veins, cave entrances, artifacts, supply drops, loot crates, landmarks and nests, plus a spawn-zone picker covering every creature that spawns on Valguero. It needs nothing from the world save — which Nitrado won't release on Xbox services anyway
 - **Players** — sessions, playtime (including the live session), last log-on/off, a level tracker with each player's current level and level-up history, and squad aggregates including total player deaths and average deaths per player
 - **Names** — every username the log scanner has detected (Xbox gamertags and character names, grouped per person): give an account a nickname, and choose which players get a dedicated player tab. Everyone stays tracked either way, and All Players always includes everyone
 - **Deaths** — full analytics back to day one: tallies, deaths-by-creature charts, per-day chart, search, a sortable death log, tame losses grouped by breed (every breed, not a top-10), and a Repeat Offenders section tracking the unnamed killers by their game ID until you identify one and hang it as a trophy
@@ -31,9 +31,8 @@ One finding worth documenting: downloading the world save (`ShooterGame/Saved/Sa
 - Big ONLINE/OFFLINE status, who is in the world, squad averages (average level, average and total playtime, total combined level, total player deaths, average deaths), server day, deaths total, and a living-tame count
 - One tab per player with level-progression and deaths-by-creature charts, plus a live terminal tab streaming the app's own log
 - A Names tab mirroring the web console's: detected usernames with nickname editing and per-player tab toggles
-- A **Map polling** toggle: the world-save pull behind the Live Map. On Xbox/console services Nitrado never releases the save, so the pull is pure retry noise — switch it off and the deaths / tames / players trackers keep running on the log scan alone
 - A **Refresh** timer for the window itself: Off, 4 sec, 15 sec, 30 sec, 1 min, or 5 min between automatic updates. Off stops the window re-drawing itself entirely (Refresh Now still works), and a refresh no longer throws you back to the top of a player tab — your scroll position survives it
-- The window **remembers itself**: size and position, the last tab, the Map polling toggle, and the Refresh timer are restored on the next launch (stored in `arkmap/save/gui_settings.json`, local data the updater never touches). It opens wide rather than tall by default (up to 1120×720, never more than the screen)
+- The window **remembers itself**: size and position, the last tab, and the Refresh timer are restored on the next launch (stored in `arkmap/save/gui_settings.json`, local data the updater never touches). It opens wide rather than tall by default (up to 1120×720, never more than the screen)
 - The layout **scales with the window**: squad stats flow three-across, the tab bar wraps onto extra rows instead of running off the edge, player pages scroll, and charts and wrapped text follow the live width — maximize it and nothing is clipped or lost
 - System tray icon with hide-to-tray, a close dialog that asks tray-or-close (closing needs a second confirmation), dark title bar, and a single-instance guard so duplicate copies can't pile up and fight over the port
 
