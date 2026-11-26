@@ -184,6 +184,7 @@
   <button class="navbtn" data-view="players">Players</button>
   <button class="navbtn" data-view="names">Names</button>
   <button class="navbtn" data-view="deaths">Deaths</button>
+  <button class="navbtn" data-view="offenders">Repeat Offenders</button>
   <button class="navbtn" data-view="tames">Tames</button>
   <button class="navbtn" data-view="files">Files</button>
   <button class="navbtn" data-view="logs">Server Logs</button>
@@ -307,13 +308,17 @@
     <div class="panel" style="margin-top:16px" id="tallyPanel"><h3 id="tallyTitle">Overall Tallies — Deaths by Player</h3><div id="chartPlayers"></div></div>
     <div id="deathSections" style="margin-top:16px"></div>
     <div id="deathTames"></div>
-    <div id="deathOffenders"></div>
     <div class="panel" style="margin-top:16px">
       <h3>Death Log</h3>
       <table class="grid"><thead><tr><th class="sortable" data-sk="ts">When ⇅</th><th class="sortable" data-sk="who">Who ⇅</th><th class="sortable" data-sk="by">Killed by ⇅</th><th>Source log</th></tr></thead><tbody id="deathTable"><tr><td colspan="4" class="muted">Loading…</td></tr></tbody></table>
       <div class="muted" id="deathShowing" style="margin-top:8px"></div>
       <p class="muted" style="margin-bottom:0">The logs record who died, when, and what killed them — but not where. Death locations live in the world save, which is the file Nitrado won't hand over; if that ever opens, these get pins on the map.</p>
     </div>
+  </section>
+
+  <!-- ================= REPEAT OFFENDERS ================= -->
+  <section class="view" id="view-offenders">
+    <div id="deathOffenders"></div>
   </section>
 
   <!-- ================= TAMES ================= -->
@@ -697,6 +702,7 @@ function showView(v) {
   if (v === "settings" && !inited.settings) { inited.settings = true; loadSettings(); }
   if (v === "players") { renderPlayers(); loadPlayerLists(); }
   if (v === "deaths") { loadDeaths(); }
+  if (v === "offenders") { loadDeaths(); }
   if (v === "tames") { loadTames(); }
   if (v === "names") { loadNames(); }
   if (v === "rcon") { initRcon(); }

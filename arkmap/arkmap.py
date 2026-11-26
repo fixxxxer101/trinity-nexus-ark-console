@@ -38,7 +38,7 @@ from datetime import datetime, timezone
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
-VERSION = "2.12.2"
+VERSION = "2.12.3"
 
 APP_DIR = Path(__file__).resolve().parent
 CONFIG_DIR = Path.home() / ".arkmap"
@@ -2355,6 +2355,18 @@ def scan_logs(cfg: dict) -> None:
                 ddata["candidates"] = []
                 ddata["candidate_count"] = 0
                 ddata["candidates_v"] = SAMPLER_V
+                # The per-file scanned map belongs to the old
+                # generation too, so it starts empty with the new
+                # one: leaving the old map in place marks every file
+                # as already sampler-scanned, the re-read list comes
+                # up empty, and the new generation silently re-reads
+                # nothing at all (the v7 KillerSID backfill did
+                # exactly that on Clint's PC - sampler_v sat at 6
+                # while every pass found no work). Cleared here, in
+                # the same once-per-generation block as the samples,
+                # so an interrupted pass resumes from the stamps it
+                # managed to save instead of starting over.
+                ddata["sampler_scanned"] = {}
     todo = []
     skipped = 0
     all_log_names = []
