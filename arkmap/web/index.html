@@ -376,6 +376,8 @@
     <div id="logLayout">
       <div class="panel">
         <h3>Log Files</h3>
+        <div style="margin-bottom:10px"><button class="btn small" id="logFolder">Open logs folder</button>
+        <span class="muted" style="margin-left:8px">the downloaded logs on this PC — grab one to send it</span></div>
         <div id="logList"><span class="muted">Loading…</span></div>
       </div>
       <div class="panel">
@@ -1607,6 +1609,10 @@ function openLog(name) {
 }
 $("#logRefresh").addEventListener("click", function () { if (curLog) openLog(curLog); });
 $("#logDownload").addEventListener("click", function () { if (curLog && logDirPath) downloadFile(logDirPath + "/" + curLog); });
+$("#logFolder").addEventListener("click", function () {
+  api("/api/open-logs-folder", { method: "POST", headers: { "Content-Type": "application/json" }, body: "{}" })
+    .catch(function (e) { alert("Could not open the logs folder: " + e.message); });
+});
 
 /* ---------------- backups ---------------- */
 function saveStamp(name) {

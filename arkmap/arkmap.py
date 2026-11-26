@@ -38,7 +38,7 @@ from datetime import datetime, timezone
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
-VERSION = "2.16.0"
+VERSION = "2.17.0"
 
 APP_DIR = Path(__file__).resolve().parent
 CONFIG_DIR = Path.home() / ".arkmap"
@@ -1542,6 +1542,21 @@ def _absorb_presence(data: dict, text: str, name: str) -> list[dict]:
 LOGCACHE_DIR = SAVE_DIR / "logs"
 
 
+def open_logs_folder() -> dict:
+    """Open the folder the downloaded server logs live in
+    (save/logs) in the PC's file explorer, so a log file can be
+    grabbed and sent (Clint's ask, 2026-11-26 - e.g. the
+    ShooterGame.log a GetAllState dump lands in). Runs on the
+    console's own PC; the window button and the web button both
+    land here."""
+    try:
+        LOGCACHE_DIR.mkdir(parents=True, exist_ok=True)
+        os.startfile(str(LOGCACHE_DIR))  # Windows: opens Explorer
+    except Exception as exc:
+        raise ApiError(f"Could not open the logs folder: {exc}")
+    return {"ok": True, "folder": str(LOGCACHE_DIR)}
+
+
 def scan_logs(cfg: dict) -> None:
     """One pass over the log folder feeding every tracker (deaths,
     kills, presence, levels). Each tracker keeps its own scanned-file
@@ -2667,6 +2682,8 @@ class Handler(SimpleHTTPRequestHandler):
                 self._send_json(save_name_group(payload.get("keys") or [],
                                                 str(payload.get("nickname") or ""),
                                                 bool(payload.get("show"))))
+            elif parts.path == "/api/open-logs-folder":
+                self._send_json(open_logs_folder())
             elif parts.path == "/api/offenders":
                 self._send_json(save_offender(
                     payload.get("sid"),

@@ -472,6 +472,7 @@ class ConsoleGui:
         btn("Open in Browser", self.open_browser, accent=True)
         self.refresh_btn = btn("Refresh Now", self.refresh_now)
         self.update_btn = btn("Update", self.check_for_updates)
+        btn("Logs Folder", self.open_logs_folder)
         btn("Hide to Tray", self.hide)
         # GUI refresh timer: how often this window re-reads and
         # re-renders its tabs. Every re-render used to land every
@@ -1125,6 +1126,13 @@ class ConsoleGui:
     # -------------------------------------------------------- actions --
     def open_browser(self) -> None:
         webbrowser.open(f"http://localhost:{self.port}")
+
+    def open_logs_folder(self) -> None:
+        try:
+            arkmap.open_logs_folder()
+        except Exception as exc:
+            from tkinter import messagebox
+            messagebox.showerror("Logs Folder", str(exc))
 
     def refresh_now(self) -> None:
         if self._refreshing:

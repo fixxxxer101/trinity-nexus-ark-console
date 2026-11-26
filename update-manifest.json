@@ -1,5 +1,5 @@
 {
-  "version": "2.16.0",
+  "version": "2.17.0",
   "files": [
     {
       "path": "RUN-ARK-MAP.bat",
@@ -18,13 +18,13 @@
     },
     {
       "path": "arkmap/arkmap.py",
-      "size": 114356,
-      "sha256": "1b870aa8cb2ab32ef9c788f2363967b78900fe287186f436c1790b84b8115dff"
+      "size": 115100,
+      "sha256": "6fc3772eddf5889e23086802a810074a9370306a4727b7980b9285b741594024"
     },
     {
       "path": "arkmap/arkgui.py",
-      "size": 69888,
-      "sha256": "cc5f58c8bf3a05048fd5ce6a73db932c1a16074cb17090cc0888bf72de61d3b9"
+      "size": 70164,
+      "sha256": "feb3365b7687d91bb6666cb111a5241c8ce68c43da9cdd473aa6b5e546a42bca"
     },
     {
       "path": "arkmap/creature_names.json",
@@ -48,8 +48,8 @@
     },
     {
       "path": "arkmap/web/index.html",
-      "size": 123649,
-      "sha256": "50cca1f83407d1d749b74eee4518d1af7c5ac1a3b10a566f2c115f7ece467bad"
+      "size": 124133,
+      "sha256": "aae42adaa97ce3236b724a3b7bca3c1edd986610a0ee4ff5ae883a2858bb0d0d"
     },
     {
       "path": "arkmap/web/map.html",
