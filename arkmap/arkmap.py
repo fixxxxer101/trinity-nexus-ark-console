@@ -37,7 +37,7 @@ from datetime import datetime, timezone
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
-VERSION = "2.7.0"
+VERSION = "2.7.1"
 
 APP_DIR = Path(__file__).resolve().parent
 CONFIG_DIR = Path.home() / ".arkmap"
@@ -93,8 +93,8 @@ def load_or_prompt_config() -> dict:
     print("  1. Go to server.nitrado.net -> My Account -> Developer")
     print("     Portal -> Long-life tokens. (Nitrado will ask for your")
     print("     account password on the way - that's normal.)")
-    print("  2. Description: ArkMap. Tick ONLY the 'service' scope,")
-    print("     then Create.")
+    print("  2. Description: ArkMap. Tick the 'service' and")
+    print("     'user_info' scopes, then Create.")
     print("  3. Copy the token right away - Nitrado shows it only once.")
     print("The token can control your whole server, so it is stored")
     print("ONLY in a private folder on this PC:")

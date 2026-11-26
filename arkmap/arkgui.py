@@ -1026,8 +1026,9 @@ def run() -> int:
             messagebox.showerror(
                 "Trinity Nexus ARK Console",
                 "No saved configuration yet.\n\nRun "
-                "RUN-ARK-MAP-CONSOLE.bat once and complete the one-time "
-                "setup, then use the normal launcher.")
+                "RUN-ARK-MAP.bat once and complete the one-time "
+                "setup in the console window it opens, then use "
+                "the normal launcher.")
             root.destroy()
             return 1
         cfg = arkmap.load_or_prompt_config()
