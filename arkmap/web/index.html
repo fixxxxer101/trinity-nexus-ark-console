@@ -13,6 +13,14 @@
     --text:#dce8de; --muted:#84978a; --mono:Consolas,"Cascadia Mono",monospace;
   }
   * { box-sizing:border-box; }
+  .lvlchart { width:100%; height:auto; display:block; margin-top:8px; }
+  .lvlchart .lc-grid { stroke:var(--line); stroke-width:1; opacity:.6; }
+  .lvlchart .lc-line { fill:none; stroke:var(--tek); stroke-width:2; }
+  .lvlchart .lc-area { fill:var(--tek); opacity:.08; }
+  .lvlchart .lc-dot { fill:var(--panel); stroke:var(--tek); stroke-width:1.6; }
+  .lvlchart .lc-dot-hi { fill:var(--tek); }
+  .lvlchart .lc-lab { fill:var(--muted); font-size:11px; }
+  .lvlchart .lc-cur { fill:var(--tek); font-size:13px; font-weight:700; }
   html, body { margin:0; padding:0; min-height:100%; }
   body {
     background:
@@ -879,6 +887,60 @@ function fmtDur(sec) {
   if (h) return h + "h " + m2 + "m";
   return m2 + "m";
 }
+/* The level progression step chart - the desktop window's chart,
+   brought to the web (Clint's ask, 2026-11-26) and dressed in the
+   web theme: the level holds flat between sightings and steps at
+   each new one, over a soft area fill, with gridlines, a dot on
+   every sighting (filled where the sighting was a new high, with
+   a hover tooltip), and the current level called out at the end.
+   Data: console_levels' per-player series + history. */
+function levelChart(p) {
+  var pts = (p.series || []).filter(function (s) { return s.ts; });
+  if (pts.length < 2) return '<div class="muted" style="margin-top:6px">Not enough level sightings to chart yet.</div>';
+  var W = 720, H = 190, L = 36, R = 56, T = 14, B = 24;
+  var iw = W - L - R, ih = H - T - B;
+  var t0 = pts[0].ts, t1 = pts[pts.length - 1].ts;
+  var lo = Math.min.apply(null, pts.map(function (s) { return s.level; }));
+  var hi = Math.max.apply(null, pts.map(function (s) { return s.level; }));
+  if (hi <= lo) hi = lo + 1;
+  function X(ts) { return L + (t1 > t0 ? (ts - t0) / (t1 - t0) : 0.5) * iw; }
+  function Y(lv) { return T + ih - (lv - lo) / (hi - lo) * ih; }
+  var highs = {};
+  (p.history || []).forEach(function (h) { if (h.ts) highs[h.ts + ":" + h.level] = 1; });
+  var ticks = [];
+  for (var i = 0; i <= 3; i++) {
+    var tlv = Math.round(lo + (hi - lo) * i / 3);
+    if (ticks.indexOf(tlv) < 0) ticks.push(tlv);
+  }
+  var grid = ticks.map(function (lv2) {
+    var y = Y(lv2);
+    return '<line x1="' + L + '" y1="' + y + '" x2="' + (W - R) + '" y2="' + y + '" class="lc-grid"/>' +
+      '<text x="' + (L - 6) + '" y="' + (y + 3) + '" class="lc-lab" text-anchor="end">' + lv2 + "</text>";
+  }).join("");
+  var d = "M" + X(pts[0].ts).toFixed(1) + "," + Y(pts[0].level).toFixed(1);
+  for (var j = 1; j < pts.length; j++) {
+    d += "H" + X(pts[j].ts).toFixed(1) + "V" + Y(pts[j].level).toFixed(1);
+  }
+  d += "H" + (W - R);
+  var area = d + "V" + (T + ih) + "H" + L + "Z";
+  var dots = pts.map(function (s) {
+    var isHigh = !!highs[s.ts + ":" + s.level];
+    return '<circle cx="' + X(s.ts).toFixed(1) + '" cy="' + Y(s.level).toFixed(1) +
+      '" r="' + (isHigh ? 3.6 : 2.6) + '" class="' + (isHigh ? "lc-dot-hi" : "lc-dot") +
+      '"><title>Lvl ' + s.level + " · " + fmtWhen(s.ts) + "</title></circle>";
+  }).join("");
+  var last = pts[pts.length - 1];
+  var fmtD = function (ts) { return new Date(ts * 1000).toLocaleDateString([], { month: "short", day: "numeric" }); };
+  return '<svg class="lvlchart" viewBox="0 0 ' + W + " " + H + '" role="img" aria-label="Level progression chart for ' + esc(p.name) + '">' +
+    grid +
+    '<path d="' + area + '" class="lc-area"/>' +
+    '<path d="' + d + '" class="lc-line"/>' +
+    dots +
+    '<text x="' + (W - R + 8) + '" y="' + (Y(last.level) + 4) + '" class="lc-cur">Lvl ' + num(last.level) + "</text>" +
+    '<text x="' + L + '" y="' + (H - 6) + '" class="lc-lab">' + fmtD(t0) + "</text>" +
+    '<text x="' + (W - R) + '" y="' + (H - 6) + '" class="lc-lab" text-anchor="end">' + fmtD(t1) + "</text>" +
+    "</svg>";
+}
 function renderPlayers() {
   api("/api/presence").then(function (pr) {
     return api("/api/levels").catch(function () { return { players: [] }; }).then(function (lv) {
@@ -919,11 +981,9 @@ function renderPlayers() {
     }).join("") : '<span class="muted">No logins or logouts recorded yet.</span>';
     var lvPlayers = lv.players || [];
     $("#plLevels").innerHTML = lvPlayers.length ? lvPlayers.map(function (p) {
-      return '<div style="margin-bottom:12px"><div class="orb" style="font-weight:700;letter-spacing:1px">' + esc(p.name) + " — level " + num(p.current) + "</div>" +
-        '<div style="margin-top:6px">' + p.history.map(function (h) {
-          return '<span class="badge plain" style="margin:0 6px 6px 0">Lvl ' + num(h.level) + " · " + (h.ts ? new Date(h.ts * 1000).toLocaleDateString([], { month: "short", day: "numeric" }) : "") + "</span>";
-        }).join("") + "</div>" +
-        '<div class="muted">First seen at each level, from ' + num(p.sightings) + " level sighting" + (num(p.sightings) === 1 ? "" : "s") + " in the logs (death and level-up lines record the player's current level).</div></div>";
+      return '<div style="margin-bottom:18px"><div class="orb" style="font-weight:700;letter-spacing:1px">' + esc(p.name) + " — level " + num(p.current) + "</div>" +
+        levelChart(p) +
+        '<div class="muted">Caught at ' + num(p.sightings) + " point" + (num(p.sightings) === 1 ? "" : "s") + " in the logs — " + (p.history || []).length + " of " + num(p.current) + " levels sighted. The logs only record a level when a death or level-up line catches it.</div></div>";
     }).join("") : '<span class="muted">No level sightings yet — levels are read from the levels written into death, kill, and level-up log lines.</span>';
     renderPlayerTabs();
     renderAggregates();
@@ -1028,6 +1088,7 @@ function renderPlayerTab() {
     '<div class="panel stat"><div class="lab">Deaths per Hour</div><div class="val">' + (total ? myDph.toFixed(2) : "—") + '</div><div class="sub">their deaths ÷ their hours played</div></div>' +
     '<div class="panel stat"><div class="lab">Top Killer</div><div class="val" style="font-size:21px">' + (topKiller ? esc(topKiller.label) : "—") + '</div><div class="sub">' + (topKiller ? topKiller.value + " of their deaths" : "") + '</div></div>' +
     '<div class="panel stat"><div class="lab">Share of Tribe Playtime</div><div class="val">' + (tribeTotal ? share + "%" : "—") + '</div><div class="sub">of ' + fmtDur(tribeTotal) + ' tribe-wide</div></div></div>' +
+    '<div class="panel" style="margin-top:16px"><h3>Level Progression</h3>' + (lp ? levelChart(lp) : '<span class="muted">No level sightings yet.</span>') + '</div>' +
     '<div class="panel" style="margin-top:16px"><h3>Level Ladder — 1 to ' + cur + '</h3>' +
     '<div class="muted" style="margin-bottom:10px">Highlighted rungs are proven by a log sighting on that date. The rest were passed through between sightings — the logs only write a level down when a death or level-up line records it, so the scanner collects every sighting it can find.</div>' +
     (cur ? ladder : '<span class="muted">No level sightings yet.</span>') + '</div>' +
