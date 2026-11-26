@@ -1218,7 +1218,7 @@ function renderTames() {
   });
   renderTameAnalytics(statusRows);
   var rows = statusRows.filter(function (t) {
-    if (q && (t.name + " " + t.species).toLowerCase().indexOf(q) < 0) return false;
+    if (q && (t.name + " " + t.species + " " + (t.unclaimed_by || "")).toLowerCase().indexOf(q) < 0) return false;
     return true;
   });
   rows.sort(function (a, b) {
@@ -1236,6 +1236,7 @@ function renderTames() {
     if (t.last_ts) {
       last = fmtWhen(t.last_ts) + ' <span class="muted">' + esc(t.last_kind || "") + "</span>";
       if (t.status === "dead" && t.death && t.death.by) last += ' <span class="muted">by ' + esc(killerType(t.death.by)) + "</span>";
+      if (t.status === "unclaimed" && t.unclaimed_by) last += ' <span class="muted">by ' + esc(t.unclaimed_by) + "</span>";
     }
     return "<tr><td><b>" + esc(t.name) + "</b></td>" +
       "<td>" + esc(t.species) + "</td>" +

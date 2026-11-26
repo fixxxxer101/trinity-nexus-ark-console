@@ -19,7 +19,7 @@ One finding worth documenting: downloading the world save (`ShooterGame/Saved/Sa
 - **Players** — sessions, playtime (including the live session), last log-on/off, a level tracker with each player's current level and level-up history, and squad aggregates including total player deaths and average deaths per player
 - **Names** — every username the log scanner has detected (Xbox gamertags and character names, grouped per person): give an account a nickname, and choose which players get a dedicated player tab. Everyone stays tracked either way, and All Players always includes everyone
 - **Deaths** — full analytics back to day one: tallies, deaths-by-creature charts, per-day chart, search, a sortable death log, and tame losses grouped by breed (every breed, not a top-10)
-- **Tames** — a tame database built from the logs: every tame claimed, frozen, released, unclaimed, or lost, with living / frozen / dead / unclaimed status — searchable, sortable by name, breed, level, status, and dates, with an analytics block (counts per breed, killers, average and highest level) that follows the status filter
+- **Tames** — a tame database built from the logs: every tame claimed, frozen, released, unclaimed, or lost, with living / frozen / dead / unclaimed status (unclaimed tames show who unclaimed them) — searchable, sortable by name, breed, level, status, and dates, with an analytics block (counts per breed, killers, average and highest level) that follows the status filter
 - **Files** — browse the server's file tree through the API and download files
 - **Server Logs** — live log viewer
 - **Backups** — every backup Nitrado holds (list only — there is deliberately **no Restore** anywhere in this app)

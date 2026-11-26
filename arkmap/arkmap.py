@@ -38,7 +38,7 @@ from datetime import datetime, timezone
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
-VERSION = "2.9.0"
+VERSION = "2.9.1"
 
 APP_DIR = Path(__file__).resolve().parent
 CONFIG_DIR = Path.home() / ".arkmap"
@@ -1226,7 +1226,7 @@ PARSER_VERSION = 3
 # known format) get one full re-read of every log file per sampler
 # version, tracked per file in each tracker's sampler_scanned map, so
 # a new sampler still sees the whole history exactly once.
-SAMPLER_V = 4
+SAMPLER_V = 5
 
 
 def _species_names() -> set:
@@ -1578,6 +1578,13 @@ _TAMED_NOLVL_RE = re.compile(r"([A-Za-z0-9_][^:<>]*?)\s+[Tt]amed\s+(?:a\s+|an\s+
 _TAME_WORDS = ("tamed", "froze", "unfroze", "released", "cryo", "claimed")
 
 
+def _tame_actor(raw: str) -> str:
+    """The actor capture can start inside the log line's bracketed
+    timestamp prefix ('045][123] KayDence') when the line carries no
+    colon before the name; keep only the segment after the last ']'."""
+    return (raw or "").rsplit("]", 1)[-1].strip()
+
+
 def parse_tames(text: str, source: str) -> list[dict]:
     """Tame lifecycle events from log text: claims (taming), cryopod
     freezes and releases. The froze form is verified against this
@@ -1608,7 +1615,7 @@ def parse_tames(text: str, source: str) -> list[dict]:
             if kind == "claim" and not species:
                 species = name
             out.append({"ts": ts, "kind": kind,
-                        "actor": m.group(1).strip(), "name": name,
+                        "actor": _tame_actor(m.group(1)), "name": name,
                         "lvl": int(m.group(3)) if m.group(3) else None,
                         "species": species,
                         "source": source, "raw": line.strip()[:300]})
@@ -1619,7 +1626,7 @@ def parse_tames(text: str, source: str) -> list[dict]:
             m = _TAMED_NOLVL_RE.search(clean)
             if m:
                 out.append({"ts": ts, "kind": "claim",
-                            "actor": m.group(1).strip(),
+                            "actor": _tame_actor(m.group(1)),
                             "name": m.group(2).strip(), "lvl": None,
                             "species": m.group(3).strip(),
                             "source": source, "raw": line.strip()[:300]})
@@ -1692,6 +1699,7 @@ def _absorb_tames(data: dict, text: str, name: str,
     for e in parse_tames(text, name):
         evs.append({"ts": e["ts"], "kind": e["kind"], "name": e["name"],
                     "species": e["species"], "lvl": e["lvl"],
+                    "actor": e.get("actor") or "",
                     "raw": e["raw"]})
     for e in death_events:
         if e.get("kind") == "tame":
@@ -1708,7 +1716,8 @@ def _absorb_tames(data: dict, text: str, name: str,
             r = {"name": e["name"],
                  "species": e["species"] or "Unknown type",
                  "level": None, "first_seen": e["ts"], "claimed": None,
-                 "frozen": False, "unclaimed": False, "death": None,
+                 "frozen": False, "unclaimed": False, "unclaimed_by": None,
+                 "death": None,
                  "last_ts": None, "last_kind": "", "events": []}
             records[key] = r
             touched.append(key)
@@ -1726,11 +1735,13 @@ def _absorb_tames(data: dict, text: str, name: str,
                                        or ts is None
                                        or ts >= r["last_ts"]):
                 r["unclaimed"] = False
+                r["unclaimed_by"] = None
         elif e["kind"] == "unclaim":
             if r["death"] is None and (r["last_ts"] is None
                                        or ts is None
                                        or ts >= r["last_ts"]):
                 r["unclaimed"] = True
+                r["unclaimed_by"] = e.get("actor") or None
         elif e["kind"] == "death":
             if r["death"] is None or (ts is not None and r["death"]["ts"]
                                       is not None
@@ -1742,10 +1753,14 @@ def _absorb_tames(data: dict, text: str, name: str,
                                        or ts >= r["last_ts"]):
                 r["frozen"] = e["kind"] == "froze"
                 r["unclaimed"] = False
+                r["unclaimed_by"] = None
         if ts is not None and (r["last_ts"] is None or ts >= r["last_ts"]):
             r["last_ts"] = ts
             r["last_kind"] = e["kind"]
-        r["events"].append({"ts": ts, "kind": e["kind"]})
+        ev_rec = {"ts": ts, "kind": e["kind"]}
+        if e.get("actor"):
+            ev_rec["actor"] = e["actor"]
+        r["events"].append(ev_rec)
         r["events"] = r["events"][-40:]
     cands = data.setdefault("candidates", [])
     seen_raw = {c.get("raw") for c in cands}
