@@ -429,13 +429,15 @@ class ConsoleGui:
         agg.pack(fill="x", pady=(10, 0))
         tk.Label(agg, text="SQUAD AVERAGES & TOTALS", bg=PANEL, fg=MUTED,
                  font=("Segoe UI", 9, "bold")).grid(
-                     row=0, column=0, columnspan=4, sticky="w", padx=14,
+                     row=0, column=0, columnspan=6, sticky="w", padx=14,
                      pady=(10, 2))
         self.agg = {}
         specs = [("avg_level", "Average level"),
                  ("avg_play", "Average playtime"),
                  ("total_play", "Total playtime"),
-                 ("combined_level", "Total combined level")]
+                 ("combined_level", "Total combined level"),
+                 ("total_deaths", "Total player deaths"),
+                 ("avg_deaths", "Average deaths")]
         for i, (key, label) in enumerate(specs):
             var = tk.StringVar(value="—")
             self.agg[key] = var
@@ -1143,6 +1145,10 @@ class ConsoleGui:
         self.agg["total_play"].set(_fmt_dur(agg.get("total_play")))
         self.agg["combined_level"].set(
             str(agg["combined_level"]) if agg.get("combined_level") is not None else "—")
+        self.agg["total_deaths"].set(
+            str(agg["total_deaths"]) if agg.get("total_deaths") is not None else "—")
+        self.agg["avg_deaths"].set(
+            f"{agg['avg_deaths']:.1f}" if agg.get("avg_deaths") is not None else "—")
         self.fields["checked"].set(
             time.strftime("%I:%M:%S %p", time.localtime(s.get("at", time.time()))))
         up = int(time.monotonic() - self.started_at)
@@ -1248,11 +1254,14 @@ def _collect_stats(cfg: dict, port: int) -> dict:
         if p.get("online") and p.get("since"):
             t += now - p["since"]
         totals.append(t)
+    tot_deaths = sum(s.get("deaths_total", 0) for s in detail.values())
     out["agg"] = {
         "avg_level": (sum(currents) / len(currents)) if currents else None,
         "combined_level": sum(currents) if currents else None,
         "avg_play": (sum(totals) / len(totals)) if totals else None,
         "total_play": sum(totals) if totals else None,
+        "total_deaths": tot_deaths,
+        "avg_deaths": (tot_deaths / len(presence_players)) if presence_players else None,
     }
     out["at"] = time.time()
     return out

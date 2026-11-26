@@ -38,7 +38,7 @@ from datetime import datetime, timezone
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
-VERSION = "2.8.0"
+VERSION = "2.9.0"
 
 APP_DIR = Path(__file__).resolve().parent
 CONFIG_DIR = Path.home() / ".arkmap"
@@ -1226,7 +1226,7 @@ PARSER_VERSION = 3
 # known format) get one full re-read of every log file per sampler
 # version, tracked per file in each tracker's sampler_scanned map, so
 # a new sampler still sees the whole history exactly once.
-SAMPLER_V = 3
+SAMPLER_V = 4
 
 
 def _species_names() -> set:
@@ -1573,6 +1573,8 @@ _FROZE_RE = re.compile(r"([A-Za-z0-9_][^:<>]*?)\s+froze\s+(.+?)\s+-\s+Lvl\s+(\d+
 _RELEASE_RE = re.compile(r"([A-Za-z0-9_][^:<>]*?)\s+(?:released|unfroze)\s+(.+?)\s+-\s+Lvl\s+(\d+)\s*\(([^)]*)\)")
 _TAMED_RE = re.compile(r"([A-Za-z0-9_][^:<>]*?)\s+[Tt]amed\s+(?:a\s+|an\s+)?(.+?)\s+-\s+Lvl\s+(\d+)(?:\s*\(([^)]*)\))?")
 _CLAIMED_RE = re.compile(r"([A-Za-z0-9_][^:<>]*?)\s+[Cc]laimed\s+(?:a\s+|an\s+)?(.+?)\s+-\s+Lvl\s+(\d+)(?:\s*\(([^)]*)\))?")
+_UNCLAIM_RE = re.compile(r"([A-Za-z0-9_][^:<>]*?)\s+unclaimed\s+'?(.+?)\s+-\s+Lvl\s+(\d+)\s*\(([^)]*)\)")
+_TAMED_NOLVL_RE = re.compile(r"([A-Za-z0-9_][^:<>]*?)\s+[Tt]amed\s+(?:a\s+|an\s+)?(.+?)\s*\(([^)]*)\)")
 _TAME_WORDS = ("tamed", "froze", "unfroze", "released", "cryo", "claimed")
 
 
@@ -1596,7 +1598,8 @@ def parse_tames(text: str, source: str) -> list[dict]:
         # match is harmless.
         clean = re.sub(r"<[^>]*>", "", line)
         for rx, kind in ((_FROZE_RE, "froze"), (_RELEASE_RE, "release"),
-                         (_TAMED_RE, "claim"), (_CLAIMED_RE, "claim")):
+                         (_TAMED_RE, "claim"), (_CLAIMED_RE, "claim"),
+                         (_UNCLAIM_RE, "unclaim")):
             m = rx.search(clean)
             if not m:
                 continue
@@ -1606,9 +1609,20 @@ def parse_tames(text: str, source: str) -> list[dict]:
                 species = name
             out.append({"ts": ts, "kind": kind,
                         "actor": m.group(1).strip(), "name": name,
-                        "lvl": int(m.group(3)), "species": species,
+                        "lvl": int(m.group(3)) if m.group(3) else None,
+                        "species": species,
                         "source": source, "raw": line.strip()[:300]})
             break
+        else:
+            # Level-less tame form ('Tribe X Tamed a Raft (Raft)!'):
+            # vehicles carry no level. Groups: actor, name, species.
+            m = _TAMED_NOLVL_RE.search(clean)
+            if m:
+                out.append({"ts": ts, "kind": "claim",
+                            "actor": m.group(1).strip(),
+                            "name": m.group(2).strip(), "lvl": None,
+                            "species": m.group(3).strip(),
+                            "source": source, "raw": line.strip()[:300]})
     return out
 
 
@@ -1620,6 +1634,11 @@ def parse_tame_candidates(text: str, source: str) -> list[dict]:
     out = []
     for line in text.splitlines():
         low = line.lower()
+        if "commandline:" in low:
+            continue  # the boot config line mentions cryo settings; never an event
+        if "demolished" in low or "frozen by id" in low:
+            continue  # structure demolitions (Cryofridge) and ID-only freeze
+            # notices are known formats that name no tame record
         if not any(w in low for w in _TAME_WORDS):
             continue
         if "was killed" in low:
@@ -1634,6 +1653,16 @@ def _load_tames() -> dict:
     try:
         data = json.loads(TAMES_PATH.read_text(encoding="utf-8"))
         if isinstance(data, dict) and isinstance(data.get("records"), dict):
+            # One-time cleanup: boot Commandline samples were collected
+            # as tame candidates before they were excluded at the source.
+            cands = data.get("candidates")
+            if isinstance(cands, list):
+                junk = [c for c in cands
+                        if "commandline:" in (c.get("raw") or "").lower()]
+                if junk:
+                    data["candidates"] = [c for c in cands if c not in junk]
+                    data["candidate_count"] = max(
+                        0, data.get("candidate_count", 0) - len(junk))
             return data
     except Exception:
         pass
@@ -1679,7 +1708,7 @@ def _absorb_tames(data: dict, text: str, name: str,
             r = {"name": e["name"],
                  "species": e["species"] or "Unknown type",
                  "level": None, "first_seen": e["ts"], "claimed": None,
-                 "frozen": False, "death": None,
+                 "frozen": False, "unclaimed": False, "death": None,
                  "last_ts": None, "last_kind": "", "events": []}
             records[key] = r
             touched.append(key)
@@ -1693,6 +1722,15 @@ def _absorb_tames(data: dict, text: str, name: str,
             if r["claimed"] is None or (ts is not None
                                         and ts < r["claimed"]):
                 r["claimed"] = ts
+            if r.get("unclaimed") and (r["last_ts"] is None
+                                       or ts is None
+                                       or ts >= r["last_ts"]):
+                r["unclaimed"] = False
+        elif e["kind"] == "unclaim":
+            if r["death"] is None and (r["last_ts"] is None
+                                       or ts is None
+                                       or ts >= r["last_ts"]):
+                r["unclaimed"] = True
         elif e["kind"] == "death":
             if r["death"] is None or (ts is not None and r["death"]["ts"]
                                       is not None
@@ -1703,6 +1741,7 @@ def _absorb_tames(data: dict, text: str, name: str,
                                        or ts is None
                                        or ts >= r["last_ts"]):
                 r["frozen"] = e["kind"] == "froze"
+                r["unclaimed"] = False
         if ts is not None and (r["last_ts"] is None or ts >= r["last_ts"]):
             r["last_ts"] = ts
             r["last_kind"] = e["kind"]
@@ -1724,14 +1763,18 @@ def console_tames() -> dict:
     for r in data["records"].values():
         f = dict(r)
         f["status"] = "dead" if r.get("death") else (
-            "frozen" if r.get("frozen") else "living")
+            "unclaimed" if r.get("unclaimed") else (
+                "frozen" if r.get("frozen") else "living"))
         recs.append(f)
     recs.sort(key=lambda r: (r.get("name") or "").lower())
     dead = sum(1 for r in recs if r["status"] == "dead")
     frozen = sum(1 for r in recs if r["status"] == "frozen")
+    unclaimed = sum(1 for r in recs if r["status"] == "unclaimed")
     return {"ok": True, "tames": recs,
-            "counts": {"total": len(recs), "living": len(recs) - dead,
-                       "frozen": frozen, "dead": dead},
+            "counts": {"total": len(recs),
+                       "living": len(recs) - dead - unclaimed,
+                       "frozen": frozen, "dead": dead,
+                       "unclaimed": unclaimed},
             "candidates": data.get("candidates", []),
             "candidate_count": data.get("candidate_count", 0)}
 

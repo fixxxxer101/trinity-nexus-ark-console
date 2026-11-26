@@ -16,10 +16,10 @@ One finding worth documenting: downloading the world save (`ShooterGame/Saved/Sa
 
 - **Overview** — live status, who is in the world, server-day counter (estimated from tribe-log day stamps, with the last confirmed stamp shown), connect address, full service facts, and start / stop / restart behind confirm dialogs
 - **Live Map** — the calibrated Valguero map, ready for save data
-- **Players** — sessions, playtime (including the live session), last log-on/off, and a level tracker with each player's current level and level-up history
+- **Players** — sessions, playtime (including the live session), last log-on/off, a level tracker with each player's current level and level-up history, and squad aggregates including total player deaths and average deaths per player
 - **Names** — every username the log scanner has detected (Xbox gamertags and character names, grouped per person): give an account a nickname, and choose which players get a dedicated player tab. Everyone stays tracked either way, and All Players always includes everyone
 - **Deaths** — full analytics back to day one: tallies, deaths-by-creature charts, per-day chart, search, a sortable death log, and tame losses grouped by breed (every breed, not a top-10)
-- **Tames** — a tame database built from the logs: every tame claimed, frozen, released, or lost, with living / frozen / dead status — searchable, and sortable by name, breed, level, status, and dates
+- **Tames** — a tame database built from the logs: every tame claimed, frozen, released, unclaimed, or lost, with living / frozen / dead / unclaimed status — searchable, sortable by name, breed, level, status, and dates, with an analytics block (counts per breed, killers, average and highest level) that follows the status filter
 - **Files** — browse the server's file tree through the API and download files
 - **Server Logs** — live log viewer
 - **Backups** — every backup Nitrado holds (list only — there is deliberately **no Restore** anywhere in this app)
@@ -28,7 +28,7 @@ One finding worth documenting: downloading the world save (`ShooterGame/Saved/Sa
 
 **Desktop window (Windows)**
 
-- Big ONLINE/OFFLINE status, who is in the world, squad averages (average level, average and total playtime, total combined level), server day, deaths total, and a living-tame count
+- Big ONLINE/OFFLINE status, who is in the world, squad averages (average level, average and total playtime, total combined level, total player deaths, average deaths), server day, deaths total, and a living-tame count
 - One tab per player with level-progression and deaths-by-creature charts, plus a live terminal tab streaming the app's own log
 - A Names tab mirroring the web console's: detected usernames with nickname editing and per-player tab toggles
 - System tray icon with hide-to-tray, a close dialog that asks tray-or-close (closing needs a second confirmation), dark title bar, and a single-instance guard so duplicate copies can't pile up and fight over the port

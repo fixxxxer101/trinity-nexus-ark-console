@@ -325,6 +325,13 @@
       <div class="panel stat"><div class="lab">Frozen</div><div class="val" id="tmFrozen">—</div><div class="sub">in cryo right now</div></div>
       <div class="panel stat"><div class="lab">Dead</div><div class="val" id="tmDead">—</div><div class="sub">lost, per the logs</div></div>
     </div>
+    <div class="orb" style="font-size:15px;letter-spacing:2px;margin:18px 0 4px;color:var(--tek)">ANALYTICS</div>
+    <p class="muted" style="margin:0 0 10px">Follows the All / Living / Frozen / Dead filter below — pick Dead to see losses by breed and killer.</p>
+    <div class="grid cards" id="tmStats"></div>
+    <div class="grid cols2" style="margin-top:16px">
+      <div class="panel"><h3 id="tmBreedTitle">How Many of Each Breed</h3><div id="tmBreedChart"></div></div>
+      <div class="panel"><h3>What Killed These Tames</h3><div id="tmKillerChart"></div></div>
+    </div>
     <div class="panel" style="margin-top:16px">
       <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin-bottom:12px">
         <input class="ctl" id="tmSearch" type="search" placeholder="Search name or breed…" style="flex:1;min-width:200px">
@@ -333,11 +340,12 @@
           <button class="btn small fpill" data-s="living">Living</button>
           <button class="btn small fpill" data-s="frozen">Frozen</button>
           <button class="btn small fpill" data-s="dead">Dead</button>
+          <button class="btn small fpill" data-s="unclaimed">Unclaimed</button>
         </span>
       </div>
       <table class="grid"><thead><tr><th class="sortable" data-sk="name">Name ⇅</th><th class="sortable" data-sk="species">Breed ⇅</th><th class="sortable" data-sk="level">Level ⇅</th><th class="sortable" data-sk="status">Status ⇅</th><th class="sortable" data-sk="first_seen">First seen ⇅</th><th class="sortable" data-sk="last_ts">Last event ⇅</th></tr></thead><tbody id="tmTable"><tr><td colspan="6" class="muted">Loading…</td></tr></tbody></table>
       <p class="muted" id="tmShowing"></p>
-      <p class="muted" style="margin-bottom:0">Built from the logs since Aug 23, 2026: claims, cryo freezes and releases, and deaths. Records are keyed by name + breed, so two tames sharing both share one record. A tame whose claim predates the logs and was never frozen, released, or lost won't appear until a log line names it.</p>
+      <p class="muted" style="margin-bottom:0">Built from the logs since Aug 23, 2026: claims, cryo freezes and releases, unclaims, and deaths. Records are keyed by name + breed, so two tames sharing both share one record. A tame whose claim predates the logs and was never frozen, released, or lost won't appear until a log line names it.</p>
     </div>
   </section>
 
@@ -910,11 +918,15 @@ function renderAggregates() {
   });
   var avgLvl = nLvl ? Math.round(totLvl / nLvl * 10) / 10 : 0;
   var avgTime = players.length ? totTime / players.length : 0;
+  var totDeaths = PDEATHS.filter(function (e) { return e.kind === "player"; }).length;
+  var avgDeaths = players.length ? Math.round(totDeaths / players.length * 10) / 10 : 0;
   $("#plAgg").innerHTML =
     '<div class="panel stat"><div class="lab">Average Level</div><div class="val">' + (nLvl ? avgLvl : "—") + '</div><div class="sub">across ' + nLvl + ' players</div></div>' +
     '<div class="panel stat"><div class="lab">Total Combined Level</div><div class="val">' + (nLvl ? totLvl : "—") + '</div><div class="sub">everyone\'s current levels added up</div></div>' +
     '<div class="panel stat"><div class="lab">Average Playtime</div><div class="val">' + fmtDur(avgTime) + '</div><div class="sub">per player</div></div>' +
-    '<div class="panel stat"><div class="lab">Total Play Time</div><div class="val">' + fmtDur(totTime) + '</div><div class="sub">the whole tribe, all sessions</div></div>';
+    '<div class="panel stat"><div class="lab">Total Play Time</div><div class="val">' + fmtDur(totTime) + '</div><div class="sub">the whole tribe, all sessions</div></div>' +
+    '<div class="panel stat"><div class="lab">Total Player Deaths</div><div class="val">' + totDeaths + '</div><div class="sub">every player, all time</div></div>' +
+    '<div class="panel stat"><div class="lab">Average Deaths</div><div class="val">' + (players.length ? avgDeaths : "—") + '</div><div class="sub">per player, across the roster</div></div>';
 }
 function renderPlayerTab() {
   var name = playerTab;
@@ -1149,10 +1161,31 @@ function loadTames() {
     $("#tmTable").innerHTML = '<tr><td colspan="6" class="muted">Could not load tames: ' + esc(e.message) + "</td></tr>";
   });
 }
+function renderTameAnalytics(rows) {
+  var label = tameFilter === "all" ? "All" : tameFilter.charAt(0).toUpperCase() + tameFilter.slice(1);
+  var withLvl = rows.filter(function (t) { return t.level != null; });
+  var avgLvl = withLvl.length ? Math.round(withLvl.reduce(function (s, t) { return s + t.level; }, 0) / withLvl.length * 10) / 10 : null;
+  var top = withLvl.slice().sort(function (a, b) { return b.level - a.level; })[0];
+  var breeds = countBy(rows, function (t) { return t.species || "Unknown breed"; });
+  $("#tmStats").innerHTML =
+    '<div class="panel stat"><div class="lab">In View</div><div class="val">' + rows.length + '</div><div class="sub">of ' + TAMES.length + ' on record — ' + label + '</div></div>' +
+    '<div class="panel stat"><div class="lab">Average Level</div><div class="val">' + (avgLvl != null ? avgLvl : "—") + '</div><div class="sub">across ' + withLvl.length + ' leveled tames</div></div>' +
+    '<div class="panel stat"><div class="lab">Highest Level</div><div class="val">' + (top ? top.level : "—") + '</div><div class="sub">' + (top ? esc(top.name) + " (" + esc(top.species) + ")" : "") + '</div></div>' +
+    '<div class="panel stat"><div class="lab">Most Common Breed</div><div class="val" style="font-size:21px">' + (breeds.length ? esc(breeds[0].label) : "—") + '</div><div class="sub">' + (breeds.length ? breeds[0].value + " on record" : "") + '</div></div>';
+  $("#tmBreedTitle").textContent = "How Many of Each Breed — " + label;
+  $("#tmBreedChart").innerHTML = hbars(breeds, false, true);
+  var dead = rows.filter(function (t) { return t.status === "dead" && t.death; });
+  $("#tmKillerChart").innerHTML = dead.length
+    ? hbars(countBy(dead, function (t) { return killerType(t.death.by); }), true)
+    : '<span class="muted">No deaths in this view.</span>';
+}
 function renderTames() {
   var q = ($("#tmSearch").value || "").toLowerCase();
-  var rows = TAMES.filter(function (t) {
-    if (tameFilter !== "all" && t.status !== tameFilter) return false;
+  var statusRows = TAMES.filter(function (t) {
+    return tameFilter === "all" || t.status === tameFilter;
+  });
+  renderTameAnalytics(statusRows);
+  var rows = statusRows.filter(function (t) {
     if (q && (t.name + " " + t.species).toLowerCase().indexOf(q) < 0) return false;
     return true;
   });
@@ -1164,6 +1197,7 @@ function renderTames() {
   });
   $("#tmTable").innerHTML = rows.length ? rows.map(function (t) {
     var badge = t.status === "dead" ? '<span class="badge plain">dead</span>'
+      : t.status === "unclaimed" ? '<span class="badge plain">unclaimed</span>'
       : t.status === "frozen" ? '<span class="badge incr">frozen</span>'
       : '<span class="badge incr">living</span>';
     var last = "—";
