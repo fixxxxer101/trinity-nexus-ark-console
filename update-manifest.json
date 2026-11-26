@@ -1,5 +1,5 @@
 {
-  "version": "2.20.0",
+  "version": "2.21.0",
   "files": [
     {
       "path": "RUN-ARK-MAP.bat",
@@ -18,8 +18,8 @@
     },
     {
       "path": "arkmap/arkmap.py",
-      "size": 126593,
-      "sha256": "e4c17c02a47b589ab1ffe8f115438f3ca21f8350e3f05246bee513b8230d771a"
+      "size": 128443,
+      "sha256": "37d0f0421a762e5a374a763e235a81dece98c711e3d15ae42f0e8c43a3bda81e"
     },
     {
       "path": "arkmap/arkgui.py",

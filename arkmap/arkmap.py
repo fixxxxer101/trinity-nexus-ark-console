@@ -38,7 +38,7 @@ from datetime import datetime, timezone
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
-VERSION = "2.20.0"
+VERSION = "2.21.0"
 
 APP_DIR = Path(__file__).resolve().parent
 CONFIG_DIR = Path.home() / ".arkmap"
@@ -273,6 +273,23 @@ def _already_scanned(scanned: dict, name: str, entry: dict) -> bool:
         return True
     size = _entry_size(entry)
     return size is not None and str(scanned[name]) == str(size)
+
+
+_LIVE_LOG_DATE_RE = re.compile(
+    r"ServerGame\.\d+\.(\d{4}\.\d{2}\.\d{2}_\d{2}\.\d{2}\.\d{2})\.log$")
+
+
+def _live_servergame(entries) -> tuple | None:
+    """The running server's own log - ServerGame.<pid>.<start>.log,
+    the newest one in the listing by the start stamp in its name.
+    Returns (name, entry), or None when the listing has none."""
+    best = None
+    for e in entries:
+        name = _entry_name(e)
+        m = _LIVE_LOG_DATE_RE.match(name)
+        if m and (best is None or m.group(1) > best[0]):
+            best = (m.group(1), name, e)
+    return (best[1], best[2]) if best else None
 
 
 # ------------------------------------------------------------ downloads ----
@@ -1625,6 +1642,29 @@ def scan_logs(cfg: dict) -> None:
             skipped += 1
             continue
         todo.append((name, _entry_fingerprint(e), need))
+    # The live ServerGame log is force-pulled every pass (Clint,
+    # 2026-11-26): the file server's listing can keep reporting
+    # the same size/stamp while the running server's log grows -
+    # that is how the GetAllState listings, flushed minutes after
+    # Clint ran the commands, sat on the server while every
+    # tracker believed the file was already scanned. The live
+    # log is small and every absorb dedupes, so re-reading it
+    # costs little and nothing can hide in it again.
+    live = _live_servergame(entries)
+    if live and all(t[0] != live[0] for t in todo):
+        todo.append((live[0], _entry_fingerprint(live[1]), list(domains)))
+    # The engine log (ShooterGame.log) never appears in the file
+    # listing on this service, so the loop above never sees it -
+    # but command output may be written there instead of the
+    # ServerGame log. Fetch it by name into the same kept folder,
+    # where the Nemesis Hunt scan reads every .log file. A failed
+    # fetch (locked or absent) is silent.
+    try:
+        LOGCACHE_DIR.mkdir(parents=True, exist_ok=True)
+        api_download(cfg, f"{directory}/ShooterGame.log",
+                     LOGCACHE_DIR / "ShooterGame.log")
+    except Exception:
+        pass
     if not todo:
         return
     new_deaths: list = []
