@@ -27,6 +27,11 @@
   #splash .spt { color:#e8ecf1; font-size:21px; font-weight:700; letter-spacing:2.5px; }
   #splash .sps { color:#8fa3b8; font-size:13.5px; letter-spacing:.6px; }
   #splash.hide { opacity:0; pointer-events:none; }
+  .mkicon { width:26px; height:26px; border-radius:50%; background:rgba(11,14,18,.88); border:2px solid #fff; display:flex; align-items:center; justify-content:center; font-size:14px; line-height:1; box-shadow:0 1px 5px rgba(0,0,0,.6); }
+  #markbar { background:#1d232c; color:#cbd5e0; padding:6px 14px; display:flex; flex-wrap:wrap; align-items:center; gap:6px 10px; font-size:13px; border-top:1px solid #2d3748; }
+  #markbar input, #markbar select { background:#0b0e12; color:#e8ecf1; border:1px solid #4a5568; border-radius:4px; padding:3px 6px; font-size:13px; }
+  #markbar button { background:#2b6cb0; color:#fff; border:0; border-radius:4px; padding:4px 12px; font-size:13px; font-weight:600; cursor:pointer; }
+  .pop .del { margin-top:6px; background:#742a2a; color:#fff; border:0; border-radius:4px; padding:3px 10px; font-size:12px; cursor:pointer; }
 </style>
 </head>
 <body>
@@ -44,6 +49,17 @@
     <label>Dino spawn zones: <select id="spawnSpecies"><option value="">Off — pick a creature</option></select></label>
     <span id="spawnInfo" style="color:#718096"></span>
     <span id="atlasNote" style="color:#718096">Resources, caves, drops, nests and the rest — toggle layers at the top-right of the map. Click any marker for details.</span>
+  </div>
+  <div id="markbar">
+    <b style="color:#e8ecf1">Your markers:</b>
+    <input id="mkName" type="text" placeholder="Marker name (e.g. Main base)" style="width:190px">
+    <select id="mkIcon"></select>
+    <label>Lat <input id="mkLat" type="number" step="0.1" min="0" max="100" style="width:70px"></label>
+    <label>Lon <input id="mkLon" type="number" step="0.1" min="0" max="100" style="width:70px"></label>
+    <label>For <select id="mkOwner"></select></label>
+    <input id="mkNote" type="text" placeholder="Note (optional)" style="width:150px">
+    <button id="mkAdd">Add marker</button>
+    <span id="mkStatus" style="color:#718096">Click the map to fill the coordinates. Each person's markers and the Tribe's are layers at the top-right.</span>
   </div>
   <div id="mapholder"><div id="map"></div></div>
 </div>
@@ -186,6 +202,108 @@ function drawSpawns() {
   if (!map.hasLayer(gSpawn)) gSpawn.addTo(map);
   info.textContent = name + ": " + zones.length + " spawn zones — green is very common, purple is very rare.";
 }
+
+/* ---------------- family markers ----------------
+   The family's own markers (bases, boats, death spots, boss
+   lairs...), stored by the console in save/markers.json. Each
+   marker belongs to the Tribe or to one player - "who is this
+   marker for" - and each owner is a checkbox layer in the same
+   top-right control as the atlas layers, drawn as its picked
+   icon inside a ring of the owner's color. */
+var OWNER_COLORS = ["#ffd43b", "#69db7c", "#74c0fc", "#f783ac", "#ffa94d", "#b197fc", "#63e6be", "#ff8787"];
+var MK = { icons: {}, groups: {} };
+function ownerColor(owner, owners) {
+  var i = owners.indexOf(owner);
+  return OWNER_COLORS[(i < 0 ? 0 : i) % OWNER_COLORS.length];
+}
+function markerIcon(m, owners) {
+  var glyph = (MK.icons[m.icon] || {}).glyph || "📍";
+  return L.divIcon({ className: "", iconSize: [26, 26], iconAnchor: [13, 13],
+    html: '<div class="mkicon" style="border-color:' + ownerColor(m.owner, owners) + '">' + glyph + "</div>" });
+}
+function renderMarkers(data) {
+  Object.keys(MK.groups).forEach(function (k) { layerCtl.removeLayer(MK.groups[k]); map.removeLayer(MK.groups[k]); });
+  MK.groups = {};
+  MK.icons = {};
+  (data.icons || []).forEach(function (ic) { MK.icons[ic.key] = ic; });
+  var owners = data.owners || ["Tribe"];
+  var byOwner = {};
+  (data.markers || []).forEach(function (m) { (byOwner[m.owner] = byOwner[m.owner] || []).push(m); });
+  owners.forEach(function (owner) {
+    var list = byOwner[owner] || [];
+    var grp = L.layerGroup();
+    list.forEach(function (m) {
+      var mk = L.marker(toLL(m.lat, m.lon), { icon: markerIcon(m, owners) });
+      mk.bindPopup('<div class="pop"><div class="nm">' + esc((MK.icons[m.icon] || {}).glyph || "📍") + " " + esc(m.name) + "</div>" +
+        esc(owner) + " · " + coordsLine(m.lat, m.lon) +
+        (m.note ? "<br>" + esc(m.note) : "") +
+        '<br><button class="del" onclick="deleteMarker(\'' + esc(m.id) + '\')">Delete marker</button></div>');
+      grp.addLayer(mk);
+    });
+    MK.groups[owner] = grp;
+    layerCtl.addOverlay(grp, (owner === "Tribe" ? "Tribe markers" : owner + "'s markers") + " (" + list.length + ")");
+    grp.addTo(map);
+  });
+  var iconSel = document.getElementById("mkIcon");
+  var curIcon = iconSel.value;
+  iconSel.innerHTML = "";
+  (data.icons || []).forEach(function (ic) {
+    var o = document.createElement("option");
+    o.value = ic.key; o.textContent = ic.glyph + " " + ic.label;
+    iconSel.appendChild(o);
+  });
+  if (curIcon && MK.icons[curIcon]) iconSel.value = curIcon;
+  var ownSel = document.getElementById("mkOwner");
+  var curOwner = ownSel.value;
+  ownSel.innerHTML = "";
+  owners.forEach(function (owner) {
+    var o = document.createElement("option");
+    o.value = owner; o.textContent = owner;
+    ownSel.appendChild(o);
+  });
+  if (curOwner && owners.indexOf(curOwner) >= 0) ownSel.value = curOwner;
+}
+function loadMarkers() {
+  fetch("/api/markers").then(function (r) { if (!r.ok) throw new Error("no markers api"); return r.json(); })
+    .then(renderMarkers)
+    .catch(function () {
+      var st = document.getElementById("mkStatus");
+      if (st) st.textContent = "⚠ Markers live in the console — open this page from the console window so it can reach them.";
+    });
+}
+function deleteMarker(id) {
+  fetch("/api/markers", { method: "POST", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ action: "delete", id: id }) })
+    .then(function (r) { return r.json(); }).then(renderMarkers).catch(function () {});
+}
+document.getElementById("mkAdd").addEventListener("click", function () {
+  var st = document.getElementById("mkStatus");
+  var body = {
+    action: "add",
+    name: document.getElementById("mkName").value,
+    icon: document.getElementById("mkIcon").value,
+    lat: document.getElementById("mkLat").value,
+    lon: document.getElementById("mkLon").value,
+    owner: document.getElementById("mkOwner").value,
+    note: document.getElementById("mkNote").value
+  };
+  fetch("/api/markers", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) })
+    .then(function (r) { return r.json().then(function (j) { if (!r.ok || j.ok === false) throw new Error(j.error || "save failed"); return j; }); })
+    .then(function (data) {
+      renderMarkers(data);
+      document.getElementById("mkName").value = "";
+      document.getElementById("mkNote").value = "";
+      st.textContent = "Marker added.";
+    })
+    .catch(function (e) { st.textContent = "⚠ " + e.message; });
+});
+map.on("click", function (e) {
+  var lat = (1000 - e.latlng.lat) / 10, lon = e.latlng.lng / 10;
+  if (lat < 0 || lat > 100 || lon < 0 || lon > 100) return;
+  document.getElementById("mkLat").value = lat.toFixed(1);
+  document.getElementById("mkLon").value = lon.toFixed(1);
+});
+loadMarkers();
 
 document.getElementById("spawnSpecies").addEventListener("change", drawSpawns);
 loadAtlas();

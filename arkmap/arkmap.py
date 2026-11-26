@@ -38,7 +38,7 @@ from datetime import datetime, timezone
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
-VERSION = "2.18.0"
+VERSION = "2.19.0"
 
 APP_DIR = Path(__file__).resolve().parent
 CONFIG_DIR = Path.home() / ".arkmap"
@@ -2218,6 +2218,118 @@ def mark_hunt(cls, searched) -> dict:
     return console_hunt()
 
 
+# ------------------------------------------------------------ markers --
+MARKERS_PATH = SAVE_DIR / "markers.json"
+_MARKERS_LOCK = threading.Lock()
+# The marker icons the family can pick from, key -> (glyph, label).
+# Meanings from Clint, 2026-11-26: deaths, monsters, bases, boats
+# and everything in between. The map page renders this same list
+# from the /api/markers response, so this is the one source.
+MARKER_ICONS = {
+    "pin": ("📍", "Pin"),
+    "skull": ("💀", "Death / danger"),
+    "base": ("🏠", "Base"),
+    "fortress": ("🏰", "Fortress"),
+    "camp": ("⛺", "Camp / outpost"),
+    "boat": ("⛵", "Boat"),
+    "dino": ("🦖", "Dino spot"),
+    "boss": ("🐉", "Boss / monster"),
+    "battle": ("⚔️", "Battle"),
+    "resource": ("💎", "Resource spot"),
+    "nest": ("🥚", "Nest / eggs"),
+    "cache": ("📦", "Cache / storage"),
+    "fishing": ("🎣", "Fishing"),
+    "water": ("💧", "Water"),
+    "warning": ("⚠️", "Warning"),
+    "star": ("⭐", "Favorite"),
+}
+TRIBE_OWNER = "Tribe"
+
+
+def _marker_people() -> list:
+    """The family's display names (Spyder, Dak, Monkey, Mom on
+    Clint's install) - the 'who is this marker for' choices next
+    to the Tribe."""
+    names = _player_names()
+    people = []
+    for display in names.values():
+        if display and display not in people:
+            people.append(display)
+    return sorted(people)
+
+
+def _load_markers() -> dict:
+    """The family's own map markers, in save/markers.json -
+    per-server data, never shipped, never touched by the
+    updater. {version, markers: [{id, name, lat, lon, owner,
+    icon, note, ts}]}"""
+    try:
+        raw = json.loads(MARKERS_PATH.read_text(encoding="utf-8"))
+        if isinstance(raw, dict) and isinstance(raw.get("markers"), list):
+            return raw
+    except Exception:
+        pass
+    return {"version": 1, "markers": []}
+
+
+def console_markers() -> dict:
+    """Everything the map page needs: the markers, the owner
+    choices (the Tribe plus each family player), and the icon
+    set."""
+    people = _marker_people()
+    return {"ok": True,
+            "markers": _load_markers()["markers"],
+            "owners": [TRIBE_OWNER] + people,
+            "icons": [{"key": k, "glyph": g, "label": lbl}
+                      for k, (g, lbl) in MARKER_ICONS.items()]}
+
+
+def save_marker(payload: dict) -> dict:
+    """Add or delete one marker. Add: {action:'add', name, lat,
+    lon, owner, icon, note} - the owner is the Tribe or one of
+    the family players ('who is this marker for'), coordinates
+    are in-game Lat/Lon. Delete: {action:'delete', id}.
+    Returns console_markers()."""
+    action = str(payload.get("action") or "add")
+    with _MARKERS_LOCK:
+        data = _load_markers()
+        if action == "delete":
+            mid = str(payload.get("id") or "")
+            data["markers"] = [m for m in data["markers"]
+                               if str(m.get("id")) != mid]
+            _write_json_retry(MARKERS_PATH, data)
+            return console_markers()
+        name = str(payload.get("name") or "").strip()[:60]
+        if not name:
+            raise ApiError("Give the marker a name first.")
+        try:
+            lat = float(payload.get("lat"))
+            lon = float(payload.get("lon"))
+        except Exception:
+            raise ApiError("Coordinates must be numbers "
+                           "(in-game Lat and Lon).")
+        if not (0.0 <= lat <= 100.0 and 0.0 <= lon <= 100.0):
+            raise ApiError("Coordinates are in-game Lat/Lon, "
+                           "each between 0 and 100.")
+        owner = str(payload.get("owner") or "").strip()
+        people = _marker_people()
+        if owner != TRIBE_OWNER and owner not in people:
+            raise ApiError("Who is this marker for? Pick the "
+                           "Tribe or one of the family players.")
+        icon = str(payload.get("icon") or "pin")
+        if icon not in MARKER_ICONS:
+            icon = "pin"
+        data["markers"].append({
+            "id": f"{int(time.time() * 1000)}",
+            "name": name, "lat": round(lat, 1), "lon": round(lon, 1),
+            "owner": owner, "icon": icon,
+            "note": str(payload.get("note") or "").strip()[:200],
+            "ts": int(time.time()),
+        })
+        _write_json_retry(MARKERS_PATH, data)
+    return console_markers()
+
+
 _NAMES_LOCK = threading.Lock()
 
 
@@ -2797,6 +2909,8 @@ class Handler(SimpleHTTPRequestHandler):
                 self._send_json(console_offenders())
             elif parts.path == "/api/hunt":
                 self._send_json(console_hunt())
+            elif parts.path == "/api/markers":
+                self._send_json(console_markers())
             elif parts.path == "/api/rcon/status":
                 self._send_json(rcon_status(cfg))
             elif parts.path == "/api/rcon/data":
@@ -2851,6 +2965,8 @@ class Handler(SimpleHTTPRequestHandler):
                                                 bool(payload.get("show"))))
             elif parts.path == "/api/open-logs-folder":
                 self._send_json(open_logs_folder())
+            elif parts.path == "/api/markers":
+                self._send_json(save_marker(payload))
             elif parts.path == "/api/hunt":
                 self._send_json(mark_hunt(payload.get("class"),
                                           bool(payload.get("searched"))))
