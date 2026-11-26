@@ -132,6 +132,64 @@ def _release_lock() -> None:
         pass
 
 
+def _missing_files():
+    """Files this install should have but doesn't. A release that
+    ADDS a file can only be fetched by an updater that already
+    lists it - and the updater that runs an update is always the
+    previous release's, whose list predates the new file. A
+    version-only check then leaves the install permanently
+    incomplete (seen live 2026-11-26: v2.13.1's map data files
+    never arrived because the v2.12.4 updater's list predated
+    them, and "already up to date" never looked again). The
+    version check therefore also verifies completeness."""
+    return [rel for rel in FILES if not (ROOT / rel).exists()]
+
+
+def _install_missing(remote_main, missing) -> bool:
+    """Download, validate and install the given files, staged
+    like a normal update. The files were absent, so the backup
+    records a .was-absent marker for each instead of a copy."""
+    shutil.rmtree(STAGING, ignore_errors=True)
+    try:
+        for rel in missing:
+            data = remote_main if rel == "arkmap/arkmap.py" \
+                else fetch(rel)
+            if not data:
+                raise RuntimeError(f"{rel} downloaded empty")
+            dest = STAGING / rel
+            dest.parent.mkdir(parents=True, exist_ok=True)
+            dest.write_bytes(data)
+        for rel in missing:
+            path = STAGING / rel
+            if rel.endswith(".py"):
+                py_compile.compile(str(path), doraise=True)
+            elif rel.endswith(".json"):
+                json.loads(path.read_text(encoding="utf-8"))
+    except Exception as exc:
+        print(f"ERROR: stopped before changing anything ({exc}).")
+        shutil.rmtree(STAGING, ignore_errors=True)
+        return False
+    stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
+    backup_dir = BACKUP_ROOT / f"repair-{stamp}"
+    try:
+        for rel in missing:
+            marker = backup_dir / (rel + ".was-absent")
+            marker.parent.mkdir(parents=True, exist_ok=True)
+            marker.write_text("", encoding="utf-8")
+            target = ROOT / rel
+            target.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copyfile(STAGING / rel, target)
+            print(f"  restored {rel}")
+    except Exception as exc:
+        print(f"ERROR while installing ({exc}). Any file not "
+              f"listed as restored is still missing - run the "
+              f"updater again.")
+        shutil.rmtree(STAGING, ignore_errors=True)
+        return False
+    shutil.rmtree(STAGING, ignore_errors=True)
+    return True
+
+
 def console_is_running() -> bool:
     """The console serves its web page while it runs; if the port
     answers, updating now would swap code under a live app."""
@@ -209,6 +267,21 @@ def _run() -> int:
         return 1
     print(f"Latest version:    {version_str(remote_version)}")
     if remote_version <= local_version:
+        missing = _missing_files()
+        if missing:
+            print()
+            print(f"Already on the latest version, but "
+                  f"{len(missing)} file(s) are missing from this "
+                  f"install - repairing:")
+            for rel in missing:
+                print(f"  missing: {rel}")
+            if not _install_missing(remote_main, missing):
+                return 1
+            print()
+            print("Repair complete - every file the console "
+                  "needs is on disk.")
+            print("Run RUN-ARK-MAP.bat to start it.")
+            return 0
         print()
         print("Already up to date - nothing to do.")
         return 0
@@ -289,6 +362,17 @@ def _run() -> int:
         shutil.rmtree(STAGING, ignore_errors=True)
         return 1
 
+    # A version bump downloads the whole list, but verify anyway:
+    # an install that ends up missing a file breaks in ways that
+    # look like app bugs, not update bugs.
+    still_missing = _missing_files()
+    if still_missing:
+        print("Note: some files are still missing after the swap "
+              "- fetching them now:")
+        if not _install_missing(remote_main, still_missing):
+            print("WARNING: the update itself finished, but some "
+                  "files are still missing. Run the updater again "
+                  "- it will repair them.")
     # If the installer itself changed, the launcher refreshes the
     # app environment on its next run.
     old_setup = backup_dir / "setup.py"

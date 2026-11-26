@@ -56,7 +56,7 @@
     <label>min level <input id="wildMinLvl" type="number" min="1" max="1000" placeholder="any" style="width:64px"></label>
     <label>Spawn zones: <select id="spawnSpecies"><option value="">Off — pick a creature</option></select></label>
     <span id="spawnInfo" style="color:#718096"></span>
-    <span style="color:#718096">All layers — live pins, resources, caves, drops, nests — toggle at the top-right of the map. Click any marker for details.</span>
+    <span id="atlasNote" style="color:#718096">All layers — live pins, resources, caves, drops, nests — toggle at the top-right of the map. Click any marker for details.</span>
   </div>
   <div id="mapholder"><div id="map"></div></div>
 </div>
@@ -245,6 +245,14 @@ var POI_STYLE = {
 var POI_DEFAULT_ON = { caves: true, artifacts: true };
 var SPAWNS = null;
 
+function atlasMissing(what) {
+  var el = document.getElementById("atlasNote");
+  if (el) {
+    el.style.color = "#fc8181";
+    el.textContent = "⚠ The map's " + what + " data file is missing from this install — press Update in the console window to repair it, then reopen this page.";
+  }
+}
+
 function loadAtlas() {
   fetch("pois.json").then(function (r) { if (!r.ok) throw new Error("no atlas"); return r.json(); })
     .then(function (d) {
@@ -262,7 +270,7 @@ function loadAtlas() {
         layerCtl.addOverlay(grp, cat.label + " (" + cat.points.length + ")");
         if (POI_DEFAULT_ON[key]) grp.addTo(map);
       });
-    }).catch(function () {});
+    }).catch(function () { atlasMissing("resource/atlas"); });
   fetch("spawns.json").then(function (r) { if (!r.ok) throw new Error("no spawns"); return r.json(); })
     .then(function (d) {
       SPAWNS = d;
@@ -272,7 +280,7 @@ function loadAtlas() {
         o.value = name; o.textContent = name;
         sel.appendChild(o);
       });
-    }).catch(function () {});
+    }).catch(function () { atlasMissing("dino spawn"); });
 }
 
 function drawSpawns() {
