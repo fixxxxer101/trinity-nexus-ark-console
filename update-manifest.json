@@ -1,0 +1,115 @@
+{
+  "version": "2.15.0",
+  "files": [
+    {
+      "path": "RUN-ARK-MAP.bat",
+      "size": 3158,
+      "sha256": "0bc9c5f3c66192c2691a0a3f2bfc200e02114f789c85f79b512c7662ed8368ed"
+    },
+    {
+      "path": "setup.py",
+      "size": 1784,
+      "sha256": "53520f5349b2b82c5e6c6eea5b245dd014441e81ec08af9d465adf27780c4133"
+    },
+    {
+      "path": "update.py",
+      "size": 16235,
+      "sha256": "54f662297f9d9c0c69f06bee9d59dbcd99654b2d08c3c4e5bc26b42338d659b4"
+    },
+    {
+      "path": "arkmap/arkmap.py",
+      "size": 111948,
+      "sha256": "58bc3fa02feb4e4c5f15b93bd85a266f7a99c1b0dfb185bca756466d44d8cae6"
+    },
+    {
+      "path": "arkmap/arkgui.py",
+      "size": 69888,
+      "sha256": "cc5f58c8bf3a05048fd5ce6a73db932c1a16074cb17090cc0888bf72de61d3b9"
+    },
+    {
+      "path": "arkmap/creature_names.json",
+      "size": 19605,
+      "sha256": "fa48ae26dcb4137d38df80af5d0efc01cb6403b291f28632cca0869dfeb0bb89"
+    },
+    {
+      "path": "arkmap/creatures.json",
+      "size": 96293,
+      "sha256": "3fea8775e0937c69a4adf34fc5b4c40266e9350db8ff164fa525f94e5b86ac44"
+    },
+    {
+      "path": "arkmap/items.json",
+      "size": 19733,
+      "sha256": "4008ec4263b3e54cdeecf00090be5f33213a5ef7caa211a905e4a2b779db6899"
+    },
+    {
+      "path": "arkmap/emblem.png",
+      "size": 28131,
+      "sha256": "19b983f59574367d83a1f66c4c05b42c19ef06ffebd8430eb4bfa40145c8ac3a"
+    },
+    {
+      "path": "arkmap/web/index.html",
+      "size": 121972,
+      "sha256": "072e406a19ef58587d4e2f9ea33802adb16adf0634463310a78ee5ead6dae3d4"
+    },
+    {
+      "path": "arkmap/web/map.html",
+      "size": 10074,
+      "sha256": "a44a880366e1140d0d6a9f7453629ae4c699f914d3cf94c3a21d90814ddb46cf"
+    },
+    {
+      "path": "arkmap/web/pois.json",
+      "size": 316617,
+      "sha256": "1dc7cb48977d27c9c3f1ca9516818cf73788e97bc27418afd8a5951964fb85ec"
+    },
+    {
+      "path": "arkmap/web/spawns.json",
+      "size": 1919523,
+      "sha256": "eaaf39c523c2a53bae5ac9160bcf6d6c978f6f6a31b1bcca938c3b5f0fffb1e3"
+    },
+    {
+      "path": "arkmap/web/emblem.webp",
+      "size": 195310,
+      "sha256": "8095ea4df412b7c4756c54a30e865c892daedf33ae1a4f8b693a26b342b8ff8c"
+    },
+    {
+      "path": "arkmap/web/map_valguero.png",
+      "size": 1497909,
+      "sha256": "d295355a59afac540dc40aaf7f256bf0095f497f7ef84cbc26320abd2f4c68d8"
+    },
+    {
+      "path": "arkmap/web/leaflet.css",
+      "size": 14806,
+      "sha256": "a7837102824184820dfa198d1ebcd109ff6d0ff9a2672a074b9a1b4d147d04c6"
+    },
+    {
+      "path": "arkmap/web/leaflet.js",
+      "size": 147552,
+      "sha256": "db49d009c841f5ca34a888c96511ae936fd9f5533e90d8b2c4d57596f4e5641a"
+    },
+    {
+      "path": "arkmap/web/images/layers.png",
+      "size": 696,
+      "sha256": "1dbbe9d028e292f36fcba8f8b3a28d5e8932754fc2215b9ac69e4cdecf5107c6"
+    },
+    {
+      "path": "arkmap/web/images/layers-2x.png",
+      "size": 1259,
+      "sha256": "066daca850d8ffbef007af00b06eac0015728dee279c51f3cb6c716df7c42edf"
+    },
+    {
+      "path": "arkmap/web/images/marker-icon.png",
+      "size": 1466,
+      "sha256": "574c3a5cca85f4114085b6841596d62f00d7c892c7b03f28cbfa301deb1dc437"
+    },
+    {
+      "path": "arkmap/web/images/marker-icon-2x.png",
+      "size": 2464,
+      "sha256": "00179c4c1ee830d3a108412ae0d294f55776cfeb085c60129a39aa6fc4ae2528"
+    },
+    {
+      "path": "arkmap/web/images/marker-shadow.png",
+      "size": 618,
+      "sha256": "264f5c640339f042dd729062cfc04c17f8ea0f29882b538e3848ed8f10edb4da"
+    }
+  ]
+}

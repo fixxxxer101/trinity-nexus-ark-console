@@ -1323,9 +1323,6 @@ class ConsoleGui:
     def run(self) -> None:
         arkmap.log(f"=== TRINITY NEXUS ARK CONSOLE v{arkmap.VERSION} "
                    "starting (GUI) ===")
-        if not arkmap.DATA_PATH.exists():
-            arkmap.write_status(False, "Waiting for the first world save "
-                                       "from Nitrado...")
         try:
             self.server = arkmap.start_server(self.cfg)
         except (arkmap.AlreadyRunning, OSError):
@@ -1451,13 +1448,8 @@ class ConsoleGui:
             mv = " · ".join(x for x in [s.get("map"), s.get("version")] if x)
             self.fields["map"].set(mv or "—")
             self.fields["connect"].set(s.get("connect") or "—")
-            if arkmap.DATA_PATH.exists():
-                self.fields["save"].set("Live — a world save has been received")
-            elif (s.get("state") or {}).get("walled"):
-                self.fields["save"].set("Waiting — Nitrado holds the save "
-                                         "(watch mode)")
-            else:
-                self.fields["save"].set("Waiting for the first save")
+            self.fields["save"].set("Held by Nitrado — not released "
+                                    "on Xbox services")
             d = s.get("deaths")
             self.fields["trackers"].set(str(d) if d is not None else "—")
             tv = s.get("tames_alive")
@@ -1523,8 +1515,7 @@ def _collect_stats(cfg: dict, port: int) -> dict:
         out.update(ok=True, status=gs.get("status"),
                    name=q.get("server_name"), cur=q.get("player_current"),
                    max=q.get("player_max"), map=q.get("map"),
-                   version=q.get("version"), connect=q.get("connect_ip"),
-                   state=ov.get("state") or {})
+                   version=q.get("version"), connect=q.get("connect_ip"))
     except Exception as exc:
         out["error"] = str(exc)
     presence_players = []

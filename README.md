@@ -1,6 +1,6 @@
 # Trinity Nexus ARK Console
 
-A complete dashboard for a **Nitrado ARK: Survival Evolved (Xbox / console) server** — a Windows desktop app plus a LAN web console the whole household can open in a browser. Built on the Python standard library (one small third-party package, `arkparser`, is used only to parse world saves on services where a save can actually be downloaded), on top of the Nitrado API and the server's own log files.
+A complete dashboard for a **Nitrado ARK: Survival Evolved (Xbox / console) server** — a Windows desktop app plus a LAN web console the whole household can open in a browser. Built entirely on the Python standard library, on top of the Nitrado API and the server's own log files.
 
 Built for a small private, password-protected family server. Players are labelled by their **character name or Xbox gamertag**.
 
@@ -8,7 +8,7 @@ Built for a small private, password-protected family server. Players are labelle
 
 Nitrado's panel and API answer a lot about a console ARK server — status, settings, backups — but on Xbox services they never tell you *who* is playing, when they played, what level they are, what died, or what tames you own. All of that **is** written in the server's own logs. This console reads both sources and puts them together.
 
-One finding worth documenting: downloading the world save (`ShooterGame/Saved/SavedArks/`) through the file server/API is **not supported on console ARK services** (confirmed by Nitrado support, case LM2N7K-NPKNR). The server runs with `-AltSaveDirectoryName=SavedArks` and `-ForceS3ClusterStorage`, so saves live in the platform's cluster storage, outside the customer file area — the API lists the folder as empty and answers download attempts with HTTP 500. The console therefore runs in a "watch mode" for the save: it says so honestly on the page, and gives every new backup exactly one download attempt in case that ever changes. Everything below works without the save.
+One finding worth documenting: downloading the world save (`ShooterGame/Saved/SavedArks/`) through the file server/API is **not supported on console ARK services** (confirmed by Nitrado support, case LM2N7K-NPKNR). The server runs with `-AltSaveDirectoryName=SavedArks` and `-ForceS3ClusterStorage`, so saves live in the platform's cluster storage, outside the customer file area — the API lists the folder as empty and answers download attempts with HTTP 500. The console therefore doesn't pull the save at all: everything below works without it, and the map is a static atlas built from the ARK wiki's own data. (An earlier version watched for the save and tried each new backup once; that machinery was removed in v2.15.0 — if Nitrado or Microsoft ever open the folder, it can be rebuilt then.)
 
 ## What it does
 
@@ -75,7 +75,7 @@ The token can control your whole server. The app stores it **only** in `C:\Users
 
 Double-click **`RUN-ARK-MAP.bat`**. The first run sets itself up and keeps going:
 
-1. It builds the app's own Python environment (`.venv`) and installs `arkparser` — this needs the internet once, and is skipped on every later run.
+1. It builds the app's own Python environment (`.venv`) — the app runs entirely on the Python standard library, so there is nothing to download, and this step is skipped on every later run.
 2. It opens a console window and asks four questions: your **API token** (typing stays hidden), your **service ID** (shown in the Nitrado panel), the **web port** (default 8770), and how often to **check the server** in minutes (default 3). The answers are saved to `~/.arkmap/config.json`.
 3. The console starts right there in that window. The first log scan backfills your server's whole history, which can take a few minutes on a long-running server.
 

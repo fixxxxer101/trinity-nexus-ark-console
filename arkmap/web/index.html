@@ -758,14 +758,8 @@ function renderOverview() {
     $("#stDay").textContent = "—";
     $("#stDaySub").textContent = "no tribe-log stamps yet";
   }
-  var st = OV.state || {};
-  if (OV.status && OV.status.ok) {
-    $("#stSave").textContent = "Live";
-    $("#stSaveSub").textContent = OV.status.message || "";
-  } else {
-    $("#stSave").textContent = "Held by Nitrado";
-    $("#stSaveSub").textContent = "not released on Xbox services";
-  }
+  $("#stSave").textContent = "Held by Nitrado";
+  $("#stSaveSub").textContent = "not released on Xbox services";
   var facts = [];
   function fact(k, v) { if (v != null && v !== "") facts.push("<tr><td class='k'>" + esc(k) + "</td><td>" + esc(v) + "</td></tr>"); }
   fact("Service ID", OV.config && OV.config.service_id);
@@ -790,7 +784,6 @@ function renderOverview() {
   var wb = [];
   wb.push("Nitrado's API will list this Xbox server's world-save backups but refuses to hand over the file itself (HTTP 500 on that one folder — everything else downloads fine). The web panel is restore-only, and the API has no backup-download route at all. A support ticket went to Nitrado on Nov 25, 2026.");
   wb.push("So the console doesn't pull the save at all. The map is the <b>Resource Map</b> instead: a static atlas built from the ARK wiki's own Valguero data — resources, veins, caves, artifacts, drops, crates, nests and dino spawn zones — that needs nothing from the save.");
-  if (st.backup_probed) wb.push("Gameserver backup download probe: tried for backup #" + esc(st.backup_probed) + " — no route exists.");
   $("#wallBody").innerHTML = wb.map(function (p) { return "<p style='margin:0 0 10px'>" + p + "</p>"; }).join("");
 }
 $("#copyConnect").addEventListener("click", function () {

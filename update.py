@@ -16,7 +16,35 @@ under update-backup/ so an update can always be rolled back by
 hand. The --pause flag (used by the launcher and the window's
 Update button) holds the window open at the end until Enter, so
 the result never vanishes before it is read.
+
+HOW IT KNOWS WHAT TO PULL - THE MANIFEST
+----------------------------------------
+This updater carries NO list of the app's files. Every run it
+fetches one file from the repo - update-manifest.json - which
+names the current release: its version and every file that
+release consists of, each with its size and SHA-256 hash. The
+updater then pulls exactly what the manifest says: any listed
+file that is missing on disk, or whose bytes differ from the
+manifest's hash, is downloaded, hash-checked, and installed;
+anything already matching is left alone.
+
+That design is deliberate, and it replaced a hardcoded file list
+after the failure of 2026-11-26: an updater can only fetch files
+its own list names, and the updater that runs an update is always
+the PREVIOUS release's - so when v2.13.0 added the map's data
+files, the v2.12.4 updater that installed it had never heard of
+them, they never arrived, and a version-only "already up to date"
+check never looked again. With the manifest living in the repo
+next to the release it describes, a release can add files freely:
+every installed updater reads the new manifest and pulls them,
+sight unseen. "Already up to date" now means every file in the
+manifest is on disk with the manifest's hash - a claim about
+bytes, not about a version number.
+
+ARKMAP_UPDATE_BASE overrides the download base URL (used by the
+test rig and by forks); it defaults to the repo's raw address.
 """
+import hashlib
 import json
 import os
 import py_compile
@@ -30,37 +58,13 @@ from datetime import datetime
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent
-REPO_RAW = ("https://raw.githubusercontent.com/fixxxxer101/"
-            "trinity-nexus-ark-console/main")
+REPO_RAW = os.environ.get(
+    "ARKMAP_UPDATE_BASE",
+    "https://raw.githubusercontent.com/fixxxxer101/"
+    "trinity-nexus-ark-console/main").rstrip("/")
+MANIFEST_NAME = "update-manifest.json"
 STAGING = ROOT / "update-staging"
 BACKUP_ROOT = ROOT / "update-backup"
-
-# The software. Anything not listed here (save/, logs, config, the
-# .venv) is data and is never downloaded or overwritten.
-FILES = [
-    "RUN-ARK-MAP.bat",
-    "setup.py",
-    "update.py",
-    "arkmap/arkmap.py",
-    "arkmap/arkgui.py",
-    "arkmap/creature_names.json",
-    "arkmap/creatures.json",
-    "arkmap/items.json",
-    "arkmap/emblem.png",
-    "arkmap/web/index.html",
-    "arkmap/web/map.html",
-    "arkmap/web/pois.json",
-    "arkmap/web/spawns.json",
-    "arkmap/web/emblem.webp",
-    "arkmap/web/map_valguero.png",
-    "arkmap/web/leaflet.css",
-    "arkmap/web/leaflet.js",
-    "arkmap/web/images/layers.png",
-    "arkmap/web/images/layers-2x.png",
-    "arkmap/web/images/marker-icon.png",
-    "arkmap/web/images/marker-icon-2x.png",
-    "arkmap/web/images/marker-shadow.png",
-]
 
 VERSION_RE = re.compile(rb'VERSION\s*=\s*"(\d+)\.(\d+)\.(\d+)"')
 
@@ -90,8 +94,60 @@ def version_of(data: bytes):
     return tuple(int(g) for g in m.groups())
 
 
+def parse_version(text):
+    try:
+        parts = tuple(int(p) for p in str(text).strip().split("."))
+    except Exception:
+        return None
+    return parts if len(parts) == 3 else None
+
+
 def version_str(v) -> str:
     return ".".join(str(n) for n in v)
+
+
+def sha256_of(data: bytes) -> str:
+    return hashlib.sha256(data).hexdigest()
+
+
+def load_manifest() -> dict:
+    """The manifest is the release's own description of itself:
+    {"version": "2.15.0", "files": [{"path", "size", "sha256"}]}.
+    Anything malformed is a hard stop - an updater that guesses
+    its file list is the bug this design exists to remove."""
+    raw = fetch(MANIFEST_NAME)
+    doc = json.loads(raw.decode("utf-8"))
+    version = parse_version(doc.get("version"))
+    files = doc.get("files")
+    if version is None or not isinstance(files, list) or not files:
+        raise ValueError("manifest has no readable version/file list")
+    entries = []
+    for item in files:
+        path = str(item["path"])
+        size = int(item["size"])
+        digest = str(item["sha256"]).lower()
+        if path.startswith("/") or ".." in Path(path).parts:
+            raise ValueError(f"manifest path escapes the install: {path}")
+        entries.append({"path": path, "size": size, "sha256": digest})
+    return {"version": version, "files": entries}
+
+
+def _needed(manifest) -> list:
+    """Manifest entries this install does not hold exactly: the
+    file is absent, the wrong size, or hashes differently. This
+    one comparison drives updates AND repairs - there is no
+    separate completeness check to forget."""
+    out = []
+    for entry in manifest["files"]:
+        target = ROOT / entry["path"]
+        try:
+            data = target.read_bytes()
+        except OSError:
+            out.append(entry)
+            continue
+        if len(data) != entry["size"] or sha256_of(data) != entry["sha256"]:
+            out.append(entry)
+    return out
 
 
 LOCK_PATH = ROOT / "update.lock"
@@ -132,62 +188,92 @@ def _release_lock() -> None:
         pass
 
 
-def _missing_files():
-    """Files this install should have but doesn't. A release that
-    ADDS a file can only be fetched by an updater that already
-    lists it - and the updater that runs an update is always the
-    previous release's, whose list predates the new file. A
-    version-only check then leaves the install permanently
-    incomplete (seen live 2026-11-26: v2.13.1's map data files
-    never arrived because the v2.12.4 updater's list predated
-    them, and "already up to date" never looked again). The
-    version check therefore also verifies completeness."""
-    return [rel for rel in FILES if not (ROOT / rel).exists()]
-
-
-def _install_missing(remote_main, missing) -> bool:
-    """Download, validate and install the given files, staged
-    like a normal update. The files were absent, so the backup
-    records a .was-absent marker for each instead of a copy."""
+def _stage_and_validate(entries) -> dict:
+    """Download the given manifest entries into staging and prove
+    each one: the bytes must hash to the manifest's SHA-256 (and
+    match its size), Python files must compile, JSON must parse.
+    Returns {path: bytes}. Raises before anything is swapped."""
     shutil.rmtree(STAGING, ignore_errors=True)
+    staged = {}
+    for entry in entries:
+        rel = entry["path"]
+        data = fetch(rel)
+        if len(data) != entry["size"] or sha256_of(data) != entry["sha256"]:
+            raise RuntimeError(
+                f"{rel} does not match the manifest "
+                f"(size or SHA-256) - refusing to install it")
+        dest = STAGING / rel
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        dest.write_bytes(data)
+        staged[rel] = data
+        print(f"  downloaded {rel} ({len(data)} bytes)")
+    for entry in entries:
+        rel = entry["path"]
+        path = STAGING / rel
+        if rel.endswith(".py"):
+            py_compile.compile(str(path), doraise=True)
+        elif rel.endswith(".json"):
+            json.loads(path.read_text(encoding="utf-8"))
+    return staged
+
+
+def _swap(staged: dict, backup_dir: Path) -> None:
+    """Install staged files over the live ones, backing each old
+    copy up first (a .was-absent marker when there was none).
+    Rolls the whole swap back if any copy fails."""
+    swapped = []
     try:
-        for rel in missing:
-            data = remote_main if rel == "arkmap/arkmap.py" \
-                else fetch(rel)
-            if not data:
-                raise RuntimeError(f"{rel} downloaded empty")
-            dest = STAGING / rel
-            dest.parent.mkdir(parents=True, exist_ok=True)
-            dest.write_bytes(data)
-        for rel in missing:
-            path = STAGING / rel
-            if rel.endswith(".py"):
-                py_compile.compile(str(path), doraise=True)
-            elif rel.endswith(".json"):
-                json.loads(path.read_text(encoding="utf-8"))
-    except Exception as exc:
-        print(f"ERROR: stopped before changing anything ({exc}).")
-        shutil.rmtree(STAGING, ignore_errors=True)
-        return False
-    stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
-    backup_dir = BACKUP_ROOT / f"repair-{stamp}"
-    try:
-        for rel in missing:
-            marker = backup_dir / (rel + ".was-absent")
-            marker.parent.mkdir(parents=True, exist_ok=True)
-            marker.write_text("", encoding="utf-8")
+        for rel in staged:
             target = ROOT / rel
+            if target.exists():
+                keep = backup_dir / rel
+                keep.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copyfile(target, keep)
+            else:
+                marker = backup_dir / (rel + ".was-absent")
+                marker.parent.mkdir(parents=True, exist_ok=True)
+                marker.write_text("", encoding="utf-8")
             target.parent.mkdir(parents=True, exist_ok=True)
+            # Record the file BEFORE the copy: if the copy itself
+            # fails mid-write, this is exactly the file rollback
+            # must restore - appending afterwards skipped it.
+            swapped.append(rel)
             shutil.copyfile(STAGING / rel, target)
-            print(f"  restored {rel}")
     except Exception as exc:
-        print(f"ERROR while installing ({exc}). Any file not "
-              f"listed as restored is still missing - run the "
-              f"updater again.")
+        print(f"ERROR while installing ({exc}) - rolling back...")
+        failed = []
+        for rel in swapped:
+            target = ROOT / rel
+            keep = backup_dir / rel
+            try:
+                if keep.exists():
+                    shutil.copyfile(keep, target)
+                elif (backup_dir / (rel + ".was-absent")).exists():
+                    target.unlink(missing_ok=True)
+            except Exception:
+                failed.append(rel)
+        if failed:
+            print(f"WARNING: rollback could not restore: "
+                  f"{', '.join(failed)}. The intact previous copies "
+                  f"are in {backup_dir} - copy them back by hand "
+                  f"before launching.")
+        else:
+            print(f"Rolled back. Your previous files are in {backup_dir}")
+        raise
+
+
+def _install(entries, backup_dir: Path) -> dict:
+    """Stage, validate and swap the given entries. Returns the
+    staged bytes on success; raises (after any needed rollback)
+    on failure, with staging cleaned up either way."""
+    try:
+        staged = _stage_and_validate(entries)
+        print("  all files checked out")
+        backup_dir.mkdir(parents=True, exist_ok=True)
+        _swap(staged, backup_dir)
+        return staged
+    finally:
         shutil.rmtree(STAGING, ignore_errors=True)
-        return False
-    shutil.rmtree(STAGING, ignore_errors=True)
-    return True
 
 
 def console_is_running() -> bool:
@@ -223,7 +309,6 @@ def main() -> int:
 
 
 def _run() -> int:
-
     local_main = ROOT / "arkmap" / "arkmap.py"
     if not local_main.exists():
         print("ERROR: arkmap/arkmap.py not found - run this from the "
@@ -255,129 +340,70 @@ def _run() -> int:
         return 2
 
     try:
-        remote_main = fetch("arkmap/arkmap.py")
+        manifest = load_manifest()
     except Exception as exc:
-        print(f"ERROR: could not reach GitHub ({exc}). "
-              "Check the internet connection and try again.")
+        print(f"ERROR: could not read the release manifest from "
+              f"GitHub ({exc}). Nothing was changed - check the "
+              f"internet connection and try again.")
         return 1
-    remote_version = version_of(remote_main)
-    if remote_version is None:
-        print("ERROR: the copy on GitHub has no readable version. "
-              "Nothing was changed.")
-        return 1
+    remote_version = manifest["version"]
     print(f"Latest version:    {version_str(remote_version)}")
-    if remote_version <= local_version:
-        missing = _missing_files()
-        if missing:
-            print()
-            print(f"Already on the latest version, but "
-                  f"{len(missing)} file(s) are missing from this "
-                  f"install - repairing:")
-            for rel in missing:
-                print(f"  missing: {rel}")
-            if not _install_missing(remote_main, missing):
-                return 1
-            print()
-            print("Repair complete - every file the console "
-                  "needs is on disk.")
-            print("Run RUN-ARK-MAP.bat to start it.")
-            return 0
+
+    if remote_version < local_version:
         print()
-        print("Already up to date - nothing to do.")
+        print("The release on GitHub is older than this install - "
+              "nothing to do, and updates never run backwards.")
         return 0
 
-    print()
-    print(f"Updating {version_str(local_version)} -> "
-          f"{version_str(remote_version)} ...")
-    shutil.rmtree(STAGING, ignore_errors=True)
-    staged = {}
-    try:
-        for rel in FILES:
-            data = remote_main if rel == "arkmap/arkmap.py" \
-                else fetch(rel)
-            if not data:
-                raise RuntimeError(f"{rel} downloaded empty")
-            dest = STAGING / rel
-            dest.parent.mkdir(parents=True, exist_ok=True)
-            dest.write_bytes(data)
-            staged[rel] = data
-            print(f"  downloaded {rel} ({len(data)} bytes)")
-        # Validate before anything is swapped: Python files must
-        # compile, the JSON table must parse.
-        for rel in FILES:
-            path = STAGING / rel
-            if rel.endswith(".py"):
-                py_compile.compile(str(path), doraise=True)
-            elif rel.endswith(".json"):
-                json.loads(path.read_text(encoding="utf-8"))
-        print("  all files checked out")
-    except Exception as exc:
-        print(f"ERROR: update stopped before changing anything ({exc}).")
-        shutil.rmtree(STAGING, ignore_errors=True)
-        return 1
+    needed = _needed(manifest)
+    updating = remote_version > local_version
+    if not needed:
+        print()
+        print("Already up to date - every file matches the "
+              "release manifest.")
+        return 0
 
     stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
-    backup_dir = BACKUP_ROOT / (
-        f"v{version_str(local_version)}-to-v{version_str(remote_version)}"
-        f"-{stamp}")
-    swapped = []
+    if updating:
+        print()
+        print(f"Updating {version_str(local_version)} -> "
+              f"{version_str(remote_version)} "
+              f"({len(needed)} file(s) to pull)...")
+        backup_dir = BACKUP_ROOT / (
+            f"v{version_str(local_version)}-to-"
+            f"v{version_str(remote_version)}-{stamp}")
+    else:
+        print()
+        print(f"Already on the latest version, but "
+              f"{len(needed)} file(s) are missing or differ from "
+              f"the release - repairing:")
+        for entry in needed:
+            print(f"  needs pull: {entry['path']}")
+        backup_dir = BACKUP_ROOT / f"repair-{stamp}"
+
     try:
-        for rel in FILES:
-            target = ROOT / rel
-            if target.exists():
-                keep = backup_dir / rel
-                keep.parent.mkdir(parents=True, exist_ok=True)
-                shutil.copyfile(target, keep)
-            else:
-                (backup_dir / (rel + ".was-absent")).parent.mkdir(
-                    parents=True, exist_ok=True)
-                (backup_dir / (rel + ".was-absent")).write_text(
-                    "", encoding="utf-8")
-            target.parent.mkdir(parents=True, exist_ok=True)
-            # Record the file BEFORE the copy: if the copy itself
-            # fails mid-write, this is exactly the file rollback
-            # must restore - appending afterwards skipped it.
-            swapped.append(rel)
-            shutil.copyfile(STAGING / rel, target)
+        staged = _install(needed, backup_dir)
     except Exception as exc:
-        print(f"ERROR while installing ({exc}) - rolling back...")
-        failed = []
-        for rel in swapped:
-            target = ROOT / rel
-            keep = backup_dir / rel
-            try:
-                if keep.exists():
-                    shutil.copyfile(keep, target)
-                elif (backup_dir / (rel + ".was-absent")).exists():
-                    target.unlink(missing_ok=True)
-            except Exception:
-                failed.append(rel)
-        if failed:
-            print(f"WARNING: rollback could not restore: "
-                  f"{', '.join(failed)}. The intact previous copies "
-                  f"are in {backup_dir} - copy them back by hand "
-                  f"before launching.")
-        else:
-            print(f"Rolled back. Your previous files are in {backup_dir}")
-        shutil.rmtree(STAGING, ignore_errors=True)
+        print(f"ERROR: stopped before completing ({exc}).")
         return 1
 
-    # A version bump downloads the whole list, but verify anyway:
-    # an install that ends up missing a file breaks in ways that
-    # look like app bugs, not update bugs.
-    still_missing = _missing_files()
-    if still_missing:
-        print("Note: some files are still missing after the swap "
-              "- fetching them now:")
-        if not _install_missing(remote_main, still_missing):
-            print("WARNING: the update itself finished, but some "
-                  "files are still missing. Run the updater again "
-                  "- it will repair them.")
+    # Verify against the manifest, not against hope: recompute
+    # what the install still lacks and pull it in the same run.
+    still = _needed(manifest)
+    if still:
+        print("Note: some files are still not matching after the "
+              "swap - pulling them again now:")
+        try:
+            _install(still, BACKUP_ROOT / f"repair-{stamp}")
+        except Exception as exc:
+            print(f"WARNING: the update finished, but some files "
+                  f"still do not match the manifest ({exc}). Run "
+                  f"the updater again - it will pull exactly those.")
     # If the installer itself changed, the launcher refreshes the
     # app environment on its next run.
     old_setup = backup_dir / "setup.py"
-    if old_setup.exists() and \
-            old_setup.read_bytes() != staged.get("setup.py", b""):
+    if old_setup.exists() and "setup.py" in staged and \
+            old_setup.read_bytes() != staged["setup.py"]:
         try:
             (ROOT / ".needs-setup").write_text(
                 "setup.py changed in this update\n", encoding="utf-8")
@@ -387,10 +413,13 @@ def _run() -> int:
                   f"If the app misbehaves, delete the .venv folder "
                   f"and relaunch - setup will rebuild it.")
 
-    shutil.rmtree(STAGING, ignore_errors=True)
     print()
-    print(f"Updated to {version_str(remote_version)}. "
-          f"Old files kept in update-backup/{backup_dir.name}/")
+    if updating:
+        print(f"Updated to {version_str(remote_version)}. "
+              f"Old files kept in update-backup/{backup_dir.name}/")
+    else:
+        print("Repair complete - every file matches the release "
+              "manifest.")
     print("Run RUN-ARK-MAP.bat to start the new version.")
     return 0
 
