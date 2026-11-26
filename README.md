@@ -23,7 +23,7 @@ One finding worth documenting: downloading the world save (`ShooterGame/Saved/Sa
 - **Files** — browse the server's file tree through the API and download files
 - **Server Logs** — live log viewer
 - **Backups** — every backup Nitrado holds (list only — there is deliberately **no Restore** anywhere in this app)
-- **RCON** — a button-driven server-admin menu (Source RCON): save, broadcast, time/day/speed, player kick/ban/chat/give-item/give-XP by picker, tribe actions, wild-creature resets by kind, Valguero weather, and a save-first shutdown — behind a password prompt, with confirms on everything destructive. The password lives only in the app's memory. (Commands that act at a player's own position — spawning, teleporting, taming — have no RCON form and stay in-game.)
+- **RCON** — a button-driven server-admin menu (Source RCON): save, broadcast, time/day/speed, player kick/ban/chat/give-item/give-XP by picker, tribe actions, wild-creature resets by kind, Valguero weather, and a save-first shutdown — behind a password prompt, with confirms on everything destructive. The password lives only in the app's memory. (Commands that act at a player's own position — spawning, teleporting, taming — have no RCON form and stay in-game.) **Note: Nitrado exposes RCON only on PC servers — on an Xbox/console service the view states that RCON is disabled there and stays locked.**
 - **Settings** — the complete server configuration, read-only
 
 **Desktop window (Windows)**

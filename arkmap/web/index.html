@@ -421,6 +421,12 @@
       <div class="hs">Server admin commands, as buttons — no console incantations to memorize</div>
     </div>
 
+    <div class="panel" id="rconBlocked" style="display:none;margin-bottom:16px;border:1px solid #f2b04d">
+      <h3 style="color:#f2b04d">RCON is disabled on Xbox servers</h3>
+      <p style="line-height:1.55;margin-bottom:6px">Nitrado only makes RCON available on <b>PC servers</b>. This service is the Xbox / console kind, so the RCON port is never exposed — the command menu below can't connect here, no matter the password. It stays in the console because the same app works against PC servers, where it unlocks normally.</p>
+      <p class="muted" id="rconBlockReason" style="margin-bottom:0"></p>
+    </div>
+
     <div class="panel" id="rconLocked">
       <h3>Locked</h3>
       <p class="muted" style="line-height:1.55">Enter this server's RCON password (the server admin password) to unlock the command menu. The password is kept only in the console app's memory while it runs — it is never saved to disk, and Lock or closing the app forgets it.</p>
@@ -920,13 +926,26 @@ function renderAggregates() {
   var avgTime = players.length ? totTime / players.length : 0;
   var totDeaths = PDEATHS.filter(function (e) { return e.kind === "player"; }).length;
   var avgDeaths = players.length ? Math.round(totDeaths / players.length * 10) / 10 : 0;
+  var totSessions = players.reduce(function (s, p) { return s + (p.sessions || 0); }, 0);
+  var avgSession = totSessions ? totTime / totSessions : 0;
+  var deathByPlayer = countBy(PDEATHS.filter(function (e) { return e.kind === "player"; }),
+    function (e) { return e.player || e.who || "?"; });
+  var weekDeaths = PDEATHS.filter(function (e) {
+    return e.kind === "player" && e.ts && e.ts >= now - 7 * 86400;
+  }).length;
+  var deathsPerHour = totTime ? totDeaths / (totTime / 3600) : 0;
   $("#plAgg").innerHTML =
     '<div class="panel stat"><div class="lab">Average Level</div><div class="val">' + (nLvl ? avgLvl : "—") + '</div><div class="sub">across ' + nLvl + ' players</div></div>' +
     '<div class="panel stat"><div class="lab">Total Combined Level</div><div class="val">' + (nLvl ? totLvl : "—") + '</div><div class="sub">everyone\'s current levels added up</div></div>' +
     '<div class="panel stat"><div class="lab">Average Playtime</div><div class="val">' + fmtDur(avgTime) + '</div><div class="sub">per player</div></div>' +
     '<div class="panel stat"><div class="lab">Total Play Time</div><div class="val">' + fmtDur(totTime) + '</div><div class="sub">the whole tribe, all sessions</div></div>' +
     '<div class="panel stat"><div class="lab">Total Player Deaths</div><div class="val">' + totDeaths + '</div><div class="sub">every player, all time</div></div>' +
-    '<div class="panel stat"><div class="lab">Average Deaths</div><div class="val">' + (players.length ? avgDeaths : "—") + '</div><div class="sub">per player, across the roster</div></div>';
+    '<div class="panel stat"><div class="lab">Average Deaths</div><div class="val">' + (players.length ? avgDeaths : "—") + '</div><div class="sub">per player, across the roster</div></div>' +
+    '<div class="panel stat"><div class="lab">Deaths per Hour</div><div class="val">' + (totTime ? deathsPerHour.toFixed(2) : "—") + '</div><div class="sub">tribe-wide: deaths ÷ hours played</div></div>' +
+    '<div class="panel stat"><div class="lab">Total Sessions</div><div class="val">' + totSessions + '</div><div class="sub">logins, all players</div></div>' +
+    '<div class="panel stat"><div class="lab">Average Session</div><div class="val">' + (totSessions ? fmtDur(avgSession) : "—") + '</div><div class="sub">per login, tribe-wide</div></div>' +
+    '<div class="panel stat"><div class="lab">Most Deaths</div><div class="val" style="font-size:21px">' + (deathByPlayer.length ? esc(deathByPlayer[0].label) : "—") + '</div><div class="sub">' + (deathByPlayer.length ? deathByPlayer[0].value + " deaths" : "") + '</div></div>' +
+    '<div class="panel stat"><div class="lab">Deaths This Week</div><div class="val">' + weekDeaths + '</div><div class="sub">players, last 7 days</div></div>';
 }
 function renderPlayerTab() {
   var name = playerTab;
@@ -945,11 +964,24 @@ function renderPlayerTab() {
     else ladder += '<span class="badge plain" style="margin:0 5px 6px 0">Lvl ' + L + "</span>";
   }
   var myAct = (PPR.activity || []).filter(function (e) { return e.who === name; }).slice(0, 10);
+  var tribeTotal = (PPR.players || []).reduce(function (s, x) {
+    return s + (x.total_seconds || 0) + (x.online && x.since ? now - x.since : 0);
+  }, 0);
+  var share = tribeTotal ? Math.round(total / tribeTotal * 1000) / 10 : 0;
+  var avgSess = p.sessions ? total / p.sessions : 0;
+  var perDeath = myDeaths.length ? total / myDeaths.length : 0;
+  var myDph = total ? myDeaths.length / (total / 3600) : 0;
+  var topKiller = countBy(myDeaths, function (e) { return killerType(e.by); })[0];
   $("#ptabPlayer").innerHTML =
     '<div class="grid cards">' +
     '<div class="panel stat"><div class="lab">Level</div><div class="val">' + (cur || "—") + '</div><div class="sub">' + (lp ? lp.sightings + " sightings in the logs" : "no sightings yet") + '</div></div>' +
     '<div class="panel stat"><div class="lab">Time Played</div><div class="val">' + fmtDur(total) + '</div><div class="sub">' + (p.sessions || 0) + ' sessions</div></div>' +
-    '<div class="panel stat"><div class="lab">Deaths</div><div class="val">' + myDeaths.length + '</div><div class="sub">player deaths on record</div></div></div>' +
+    '<div class="panel stat"><div class="lab">Deaths</div><div class="val">' + myDeaths.length + '</div><div class="sub">player deaths on record</div></div>' +
+    '<div class="panel stat"><div class="lab">Average Session</div><div class="val">' + (p.sessions ? fmtDur(avgSess) : "—") + '</div><div class="sub">per login</div></div>' +
+    '<div class="panel stat"><div class="lab">Playtime per Death</div><div class="val">' + (myDeaths.length ? fmtDur(perDeath) : "—") + '</div><div class="sub">' + (myDeaths.length ? "how long they last, on average" : "no deaths yet — flawless") + '</div></div>' +
+    '<div class="panel stat"><div class="lab">Deaths per Hour</div><div class="val">' + (total ? myDph.toFixed(2) : "—") + '</div><div class="sub">their deaths ÷ their hours played</div></div>' +
+    '<div class="panel stat"><div class="lab">Top Killer</div><div class="val" style="font-size:21px">' + (topKiller ? esc(topKiller.label) : "—") + '</div><div class="sub">' + (topKiller ? topKiller.value + " of their deaths" : "") + '</div></div>' +
+    '<div class="panel stat"><div class="lab">Share of Tribe Playtime</div><div class="val">' + (tribeTotal ? share + "%" : "—") + '</div><div class="sub">of ' + fmtDur(tribeTotal) + ' tribe-wide</div></div></div>' +
     '<div class="panel" style="margin-top:16px"><h3>Level Ladder — 1 to ' + cur + '</h3>' +
     '<div class="muted" style="margin-bottom:10px">Highlighted rungs are proven by a log sighting on that date. The rest were passed through between sightings — the logs only write a level down when a death or level-up line records it, so the scanner collects every sighting it can find.</div>' +
     (cur ? ladder : '<span class="muted">No level sightings yet.</span>') + '</div>' +
@@ -1779,6 +1811,13 @@ var rconInited = false;
 function initRcon() {
   api("/api/rcon/status").then(function (s) {
     $("#rconTarget").textContent = s.host ? "This console will connect to " + s.host + ":" + s.port + "." : "";
+    if (s.blocked) {
+      $("#rconBlocked").style.display = "";
+      $("#rconBlockReason").textContent = s.blocked;
+      $("#rconLocked").style.display = "none";
+      $("#rconMenu").style.display = "none";
+      return;
+    }
     if (s.unlocked) {
       $("#rconLocked").style.display = "none";
       $("#rconMenu").style.display = "";

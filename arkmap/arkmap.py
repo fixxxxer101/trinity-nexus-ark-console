@@ -2676,6 +2676,48 @@ def parse_list_players(text: str) -> list:
     return rows
 
 
+def _rcon_block_reason(cfg: dict):
+    """Why RCON cannot work on this service, or None when it can.
+    Nitrado exposes RCON only on PC servers - on console (Xbox)
+    services the game process listens internally but the port is
+    never routed, and the service's own feature flags say so. The
+    menu stays in the app for PC services; here it must say plainly
+    that it is disabled rather than fail at the password prompt."""
+    try:
+        svc = _cached("service", 60, lambda: _svc(cfg))
+        gs = _cached("gameserver", 20, lambda: _gs(cfg))
+
+        def find(d, key):
+            if isinstance(d, dict):
+                if key in d:
+                    return d[key]
+                for v in d.values():
+                    r = find(v, key)
+                    if r is not None:
+                        return r
+            elif isinstance(d, list):
+                for v in d:
+                    r = find(v, key)
+                    if r is not None:
+                        return r
+            return None
+
+        hr = find(svc, "has_rcon")
+        if hr is None:
+            hr = find(gs, "has_rcon")
+        if hr is False:
+            return ("Nitrado flags RCON off for this service - RCON is "
+                    "only available on PC servers, and this is a console "
+                    "(Xbox) service.")
+        blob = (json.dumps(svc) + json.dumps(gs)).lower()
+        if "xbox" in blob:
+            return ("This is an Xbox / console service, and Nitrado only "
+                    "exposes RCON on PC servers.")
+    except Exception:
+        pass
+    return None
+
+
 def rcon_status(cfg: dict) -> dict:
     host = None
     try:
@@ -2683,12 +2725,16 @@ def rcon_status(cfg: dict) -> dict:
     except Exception:
         host = None
     return {"ok": True, "unlocked": bool(_RCON_STATE.get("password")),
-            "host": host, "port": _rcon_port(cfg)}
+            "host": host, "port": _rcon_port(cfg),
+            "blocked": _rcon_block_reason(cfg)}
 
 
 def rcon_unlock(cfg: dict, password: str) -> dict:
     """Test the password with a real ListPlayers and, only on
     success, keep it - in memory, for this process only."""
+    reason = _rcon_block_reason(cfg)
+    if reason:
+        raise RconError("RCON is disabled on this server. " + reason)
     password = password or ""
     if not password:
         raise RconError("Enter the RCON password.")

@@ -429,7 +429,7 @@ class ConsoleGui:
         agg.pack(fill="x", pady=(10, 0))
         tk.Label(agg, text="SQUAD AVERAGES & TOTALS", bg=PANEL, fg=MUTED,
                  font=("Segoe UI", 9, "bold")).grid(
-                     row=0, column=0, columnspan=6, sticky="w", padx=14,
+                     row=0, column=0, columnspan=9, sticky="w", padx=14,
                      pady=(10, 2))
         self.agg = {}
         specs = [("avg_level", "Average level"),
@@ -437,7 +437,10 @@ class ConsoleGui:
                  ("total_play", "Total playtime"),
                  ("combined_level", "Total combined level"),
                  ("total_deaths", "Total player deaths"),
-                 ("avg_deaths", "Average deaths")]
+                 ("avg_deaths", "Average deaths"),
+                 ("total_sessions", "Total sessions"),
+                 ("avg_session", "Average session"),
+                 ("deaths_per_hour", "Deaths per hour")]
         for i, (key, label) in enumerate(specs):
             var = tk.StringVar(value="—")
             self.agg[key] = var
@@ -728,6 +731,17 @@ class ConsoleGui:
                 ("Last log-on", _fmt_when(pres.get("last_on"))),
                 ("Last log-off", "still on" if online else _fmt_when(pres.get("last_off"))),
                 ("Deaths", str(detail.get("deaths_total", 0)))]
+        sess = pres.get("sessions") or 0
+        if sess:
+            rows.append(("Average session", _fmt_dur(total / sess)))
+        dt = detail.get("deaths_total", 0)
+        if dt:
+            rows.append(("Playtime per death", _fmt_dur(total / dt)))
+            if total:
+                rows.append(("Deaths per hour", f"{dt / (total / 3600):.2f}"))
+        dby = detail.get("deaths_by") or []
+        if dby:
+            rows.append(("Top killer", f"{dby[0][0]} ({dby[0][1]})"))
         grid = tk.Frame(frame, bg=BG)
         grid.pack(fill="x", pady=(8, 2))
         for i, (label, value) in enumerate(rows):
@@ -1149,6 +1163,11 @@ class ConsoleGui:
             str(agg["total_deaths"]) if agg.get("total_deaths") is not None else "—")
         self.agg["avg_deaths"].set(
             f"{agg['avg_deaths']:.1f}" if agg.get("avg_deaths") is not None else "—")
+        self.agg["total_sessions"].set(
+            str(agg["total_sessions"]) if agg.get("total_sessions") is not None else "—")
+        self.agg["avg_session"].set(_fmt_dur(agg.get("avg_session")))
+        self.agg["deaths_per_hour"].set(
+            f"{agg['deaths_per_hour']:.2f}" if agg.get("deaths_per_hour") is not None else "—")
         self.fields["checked"].set(
             time.strftime("%I:%M:%S %p", time.localtime(s.get("at", time.time()))))
         up = int(time.monotonic() - self.started_at)
@@ -1255,6 +1274,7 @@ def _collect_stats(cfg: dict, port: int) -> dict:
             t += now - p["since"]
         totals.append(t)
     tot_deaths = sum(s.get("deaths_total", 0) for s in detail.values())
+    tot_sessions = sum((p.get("sessions") or 0) for p in presence_players)
     out["agg"] = {
         "avg_level": (sum(currents) / len(currents)) if currents else None,
         "combined_level": sum(currents) if currents else None,
@@ -1262,6 +1282,9 @@ def _collect_stats(cfg: dict, port: int) -> dict:
         "total_play": sum(totals) if totals else None,
         "total_deaths": tot_deaths,
         "avg_deaths": (tot_deaths / len(presence_players)) if presence_players else None,
+        "total_sessions": tot_sessions,
+        "avg_session": (sum(totals) / tot_sessions) if tot_sessions else None,
+        "deaths_per_hour": (tot_deaths / (sum(totals) / 3600)) if sum(totals) else None,
     }
     out["at"] = time.time()
     return out
