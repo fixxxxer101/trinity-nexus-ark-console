@@ -49,6 +49,8 @@ FILES = [
     "arkmap/emblem.png",
     "arkmap/web/index.html",
     "arkmap/web/map.html",
+    "arkmap/web/pois.json",
+    "arkmap/web/spawns.json",
     "arkmap/web/emblem.webp",
     "arkmap/web/map_valguero.png",
     "arkmap/web/leaflet.css",

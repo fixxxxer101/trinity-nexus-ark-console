@@ -54,7 +54,9 @@
       <select id="wildSpecies"><option value="">All species</option></select>
     </label>
     <label>min level <input id="wildMinLvl" type="number" min="1" max="1000" placeholder="any" style="width:64px"></label>
-    <span style="color:#718096">Layers (players / tames / wilds / bases / grid) toggle at the top-right of the map. Click any marker for details.</span>
+    <label>Spawn zones: <select id="spawnSpecies"><option value="">Off — pick a creature</option></select></label>
+    <span id="spawnInfo" style="color:#718096"></span>
+    <span style="color:#718096">All layers — live pins, resources, caves, drops, nests — toggle at the top-right of the map. Click any marker for details.</span>
   </div>
   <div id="mapholder"><div id="map"></div></div>
 </div>
@@ -81,8 +83,10 @@ var gPlayers = L.layerGroup().addTo(map);
 var gTames = L.layerGroup().addTo(map);
 var gBases = L.layerGroup().addTo(map);
 var gWilds = L.layerGroup().addTo(map);
-L.control.layers(null, {
-  "Players": gPlayers, "Tames": gTames, "Wild dinos": gWilds, "Bases": gBases, "Grid": gGrid
+var gSpawn = L.layerGroup();
+var layerCtl = L.control.layers(null, {
+  "Players": gPlayers, "Tames": gTames, "Wild dinos": gWilds, "Bases": gBases, "Grid": gGrid,
+  "Spawn zones": gSpawn
 }, { collapsed: false }).addTo(map);
 
 // live coordinate readout under the mouse
@@ -213,8 +217,92 @@ function loadData() {
     .catch(function () {});
 }
 
+/* ---------------- static atlas (v2.13.0) ----------------
+   pois.json: researched Valguero points of interest from the ARK
+   wiki's own Resource Map + Explorer Map data (ASE) - resources,
+   veins, caves, artifacts, drops, crates, nests, landmarks.
+   spawns.json: per-species spawn zones from the wiki's ASE spawn
+   data, rarity graded with the wiki map's own formula. Both ship
+   with the app; no live calls. */
+var RARITY_STYLE = {
+  "Very common": { c: "#38d9a9", o: 0.50 }, "Common": { c: "#69db7c", o: 0.42 },
+  "Uncommon": { c: "#ffd43b", o: 0.38 }, "Very uncommon": { c: "#ffa94d", o: 0.34 },
+  "Rare": { c: "#ff8787", o: 0.32 }, "Very rare": { c: "#e599f7", o: 0.30 }
+};
+var POI_STYLE = {
+  metal: { c: "#ffd43b", r: 3.5 }, crystal: { c: "#e599f7", r: 3.5 },
+  obsidian: { c: "#b197fc", r: 3.5 }, oil: { c: "#ffa94d", r: 3.5 },
+  sulfur: { c: "#ffe066", r: 3.5 }, silica_pearls: { c: "#a5d8ff", r: 3.5 },
+  black_pearls: { c: "#dee2e6", r: 3.5 }, gems: { c: "#63e6be", r: 3.5 },
+  polymer: { c: "#f783ac", r: 3.5 }, flowers: { c: "#faa2c1", r: 3.5 },
+  keratin: { c: "#e6ccb2", r: 3.5 }, oil_veins: { c: "#ff922b", r: 5 },
+  gas_veins: { c: "#94d82d", r: 5 }, water_veins: { c: "#4dabf7", r: 5 },
+  beaver_dams: { c: "#d9480f", r: 6 }, obelisks: { c: "#ff6b6b", r: 7 },
+  caves: { c: "#ffffff", r: 6 }, artifacts: { c: "#ffd700", r: 7 },
+  drops: { c: "#74c0fc", r: 3 }, crates: { c: "#fab005", r: 5 },
+  landmarks: { c: "#ced4da", r: 5 }, wyvern_nests: { c: "#ff5252", r: 5 }
+};
+var POI_DEFAULT_ON = { caves: true, artifacts: true };
+var SPAWNS = null;
+
+function loadAtlas() {
+  fetch("pois.json").then(function (r) { if (!r.ok) throw new Error("no atlas"); return r.json(); })
+    .then(function (d) {
+      Object.keys(d.categories || {}).forEach(function (key) {
+        var cat = d.categories[key];
+        if (!cat.points || !cat.points.length) return;
+        var st = POI_STYLE[key] || { c: "#ffffff", r: 4 };
+        var grp = L.layerGroup();
+        cat.points.forEach(function (p) {
+          var m = L.circleMarker(toLL(p.lat, p.lon), { radius: st.r, weight: 0, fillColor: st.c, fillOpacity: 0.8 });
+          m.bindPopup('<div class="pop"><div class="nm">' + esc(p.name) + "</div>" +
+            (p.note ? esc(p.note) + "<br>" : "") + coordsLine(p.lat, p.lon) + "</div>");
+          grp.addLayer(m);
+        });
+        layerCtl.addOverlay(grp, cat.label + " (" + cat.points.length + ")");
+        if (POI_DEFAULT_ON[key]) grp.addTo(map);
+      });
+    }).catch(function () {});
+  fetch("spawns.json").then(function (r) { if (!r.ok) throw new Error("no spawns"); return r.json(); })
+    .then(function (d) {
+      SPAWNS = d;
+      var sel = document.getElementById("spawnSpecies");
+      Object.keys(d.species || {}).sort().forEach(function (name) {
+        var o = document.createElement("option");
+        o.value = name; o.textContent = name;
+        sel.appendChild(o);
+      });
+    }).catch(function () {});
+}
+
+function drawSpawns() {
+  gSpawn.clearLayers();
+  var name = document.getElementById("spawnSpecies").value;
+  var info = document.getElementById("spawnInfo");
+  if (!name || !SPAWNS || !SPAWNS.species[name]) { info.textContent = ""; return; }
+  var zones = SPAWNS.species[name].zones;
+  zones.forEach(function (z) {
+    var st = RARITY_STYLE[z.rarity] || { c: "#ffffff", o: 0.3 };
+    if (z.lat_min === z.lat_max && z.lon_min === z.lon_max) {
+      var dot = L.circleMarker(toLL(z.lat_min, z.lon_min), { radius: 4, weight: 0, fillColor: st.c, fillOpacity: 0.85 });
+      dot.bindPopup('<div class="pop"><div class="nm">' + esc(name) + "</div>Spawn point · " + esc(z.rarity) + "<br>" + coordsLine(z.lat_min, z.lon_min) + "</div>");
+      gSpawn.addLayer(dot);
+    } else {
+      var r = L.rectangle([toLL(z.lat_max, z.lon_min), toLL(z.lat_min, z.lon_max)],
+        { weight: 0, fillColor: st.c, fillOpacity: st.o });
+      r.bindPopup('<div class="pop"><div class="nm">' + esc(name) + "</div>Spawn zone · " + esc(z.rarity) +
+        "<br>Lat " + z.lat_min + "–" + z.lat_max + " · Lon " + z.lon_min + "–" + z.lon_max + "</div>");
+      gSpawn.addLayer(r);
+    }
+  });
+  if (!map.hasLayer(gSpawn)) gSpawn.addTo(map);
+  info.textContent = name + ": " + zones.length + " spawn zones — green is very common, purple is very rare.";
+}
+
 document.getElementById("wildSpecies").addEventListener("change", buildLayers);
 document.getElementById("wildMinLvl").addEventListener("change", buildLayers);
+document.getElementById("spawnSpecies").addEventListener("change", drawSpawns);
+loadAtlas();
 loadData();
 setInterval(loadData, 30000);
 setTimeout(hideSplash, 6000);
