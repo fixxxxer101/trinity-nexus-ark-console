@@ -1064,7 +1064,7 @@ function killerType(e) {
   }
   if (e.by_sid) {
     var idf = OFFENDERS[e.by_sid];
-    if (idf && idf.species) return idf.species;
+    if (idf && idf.species) return idf.species + (idf.level ? " · Lvl " + idf.level : "");
     return "Unnamed creature (…" + String(e.by_sid).slice(-3) + ")";
   }
   return "Environmental (no killer)";
@@ -1256,6 +1256,7 @@ function renderOffenders() {
     var trophy = "";
     if (idf) {
       trophy = '<div style="margin-top:10px"><b>' + esc(idf.species) + "</b>" +
+        (idf.level ? ' <span class="muted">Lvl ' + num(idf.level) + "</span>" : "") +
         (idf.killed_by ? ' — killed by <b>' + esc(idf.killed_by) + "</b>" : "") +
         (idf.killed_date ? ' <span class="muted">on ' + esc(idf.killed_date) + "</span>" : "") +
         (idf.note ? '<div class="muted">' + esc(idf.note) + "</div>" : "") +
@@ -1263,12 +1264,13 @@ function renderOffenders() {
     }
     var form = '<div id="offform-' + num(o.sid) + '" style="margin-top:10px' + (idf ? ";display:none" : "") + '">' +
       '<div class="muted" style="margin-bottom:6px">' +
-      (idf ? "Update the identification:" : "Killed it? Record what it was and hang it as a trophy:") + "</div>" +
+      (idf ? "Update the identification:" : "Killed it? The date fills itself — and the killer too, when only one of you is online. What it was and its level are the only blanks left:") + "</div>" +
       '<input id="off-species-' + num(o.sid) + '" type="text" placeholder="What was it? (e.g. Alpha Karkinos)" value="' + (idf ? esc(idf.species || "") : "") + '" style="margin-right:6px">' +
+      '<input id="off-level-' + num(o.sid) + '" type="number" min="1" max="2000" placeholder="Its level" value="' + (idf && idf.level ? num(idf.level) : "") + '" style="width:100px;margin-right:6px">' +
       '<input id="off-by-' + num(o.sid) + '" type="text" list="offPlayers" placeholder="Killed by" value="' + (idf ? esc(idf.killed_by || "") : "") + '" style="margin-right:6px">' +
       '<input id="off-date-' + num(o.sid) + '" type="date" value="' + (idf && idf.killed_date ? esc(idf.killed_date) : today) + '" style="margin-right:6px">' +
       '<input id="off-note-' + num(o.sid) + '" type="text" placeholder="Note (optional)" value="' + (idf ? esc(idf.note || "") : "") + '" style="margin-right:6px">' +
-      '<button class="btn small" data-offsave="' + num(o.sid) + '">Hang it as a trophy</button>' +
+      '<button class="btn small" data-offsave="' + num(o.sid) + '">' + (idf ? "Update trophy" : "We killed it — hang the trophy") + "</button>" +
       (idf ? ' <button class="btn small" data-offclear="' + num(o.sid) + '">Remove identification</button>' : "") +
       '<span class="muted" id="off-status-' + num(o.sid) + '" style="margin-left:8px"></span></div>';
     return head + trophy + form + "</div>";
@@ -1291,12 +1293,27 @@ function renderOffenders() {
       if (f) f.style.display = f.style.display === "none" ? "" : "none";
     });
   });
+  var needFill = false;
+  box.querySelectorAll("[id^='off-by-']").forEach(function (inp) {
+    if (!inp.value) needFill = true;
+  });
+  if (needFill) {
+    api("/api/presence").then(function (pr) {
+      var on = (pr.players || []).filter(function (p) { return p.online; });
+      if (on.length === 1) {
+        box.querySelectorAll("[id^='off-by-']").forEach(function (inp) {
+          if (!inp.value) inp.value = on[0].name;
+        });
+      }
+    }).catch(function () {});
+  }
 }
 function saveOffender(sid) {
   var status = $("#off-status-" + sid);
   var body = {
     sid: sid,
     species: ($("#off-species-" + sid) || {}).value || "",
+    level: ($("#off-level-" + sid) || {}).value || "",
     killed_by: ($("#off-by-" + sid) || {}).value || "",
     killed_date: ($("#off-date-" + sid) || {}).value || "",
     note: ($("#off-note-" + sid) || {}).value || ""

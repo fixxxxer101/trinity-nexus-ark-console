@@ -38,7 +38,7 @@ from datetime import datetime, timezone
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
-VERSION = "2.12.3"
+VERSION = "2.12.4"
 
 APP_DIR = Path(__file__).resolve().parent
 CONFIG_DIR = Path.home() / ".arkmap"
@@ -2724,7 +2724,8 @@ def console_offenders() -> dict:
     return {"ok": True, "offenders": out}
 
 
-def save_offender(sid, species, killed_by, killed_date, note) -> dict:
+def save_offender(sid, species, killed_by, killed_date, note,
+                  level="") -> dict:
     """Record the family's identification of one unnamed killer -
     what it turned out to be, who killed it, and when - which hangs
     it as a trophy. A blank species clears the identification (the
@@ -2740,8 +2741,14 @@ def save_offender(sid, species, killed_by, killed_date, note) -> dict:
         if not species:
             data["identified"].pop(str(sid), None)
         else:
+            try:
+                lvl = int(str(level).strip())
+                lvl = lvl if 1 <= lvl <= 2000 else ""
+            except Exception:
+                lvl = ""
             data["identified"][str(sid)] = {
                 "species": species[:80],
+                "level": lvl,
                 "killed_by": (killed_by or "").strip()[:60],
                 "killed_date": (killed_date or "").strip()[:10],
                 "note": (note or "").strip()[:200],
@@ -3385,7 +3392,8 @@ class Handler(SimpleHTTPRequestHandler):
                     str(payload.get("species") or ""),
                     str(payload.get("killed_by") or ""),
                     str(payload.get("killed_date") or ""),
-                    str(payload.get("note") or "")))
+                    str(payload.get("note") or ""),
+                    payload.get("level")))
             else:
                 self._send_json({"ok": False, "error": "Unknown API route."}, 404)
         except RconError as exc:
