@@ -185,6 +185,7 @@
   <button class="navbtn" data-view="names">Names</button>
   <button class="navbtn" data-view="deaths">Deaths</button>
   <button class="navbtn" data-view="offenders">Repeat Offenders</button>
+  <button class="navbtn" data-view="hunt">Nemesis Hunt</button>
   <button class="navbtn" data-view="tames">Tames</button>
   <button class="navbtn" data-view="files">Files</button>
   <button class="navbtn" data-view="logs">Server Logs</button>
@@ -319,6 +320,11 @@
   <!-- ================= REPEAT OFFENDERS ================= -->
   <section class="view" id="view-offenders">
     <div id="deathOffenders"></div>
+  </section>
+
+  <!-- ================= NEMESIS HUNT ================= -->
+  <section class="view" id="view-hunt">
+    <div id="huntBox"></div>
   </section>
 
   <!-- ================= TAMES ================= -->
@@ -705,6 +711,7 @@ function showView(v) {
   if (v === "players") { renderPlayers(); loadPlayerLists(); }
   if (v === "deaths") { loadDeaths(); }
   if (v === "offenders") { loadDeaths(); }
+  if (v === "hunt") { loadHunt(); }
   if (v === "tames") { loadTames(); }
   if (v === "names") { loadNames(); }
   if (v === "rcon") { initRcon(); }
@@ -1257,6 +1264,7 @@ function renderOffenders() {
     } else {
       title = idf && idf.species ? esc(idf.species) : "Creature #…" + String(o.sid).slice(-3);
       badges = (o.repeat ? ' <span class="badge incr">repeat offender</span>' : "") +
+        (o.spotted && !idf ? ' <span class="badge incr">spotted: ' + esc(o.spotted.species) + "</span>" : "") +
         (idf ? ' <span class="badge plain">trophy</span>' : "");
       sub = "Game ID " + num(o.sid) +
         " · first seen " + fmtWhen(o.first_ts) + " · last seen " + fmtWhen(o.last_ts);
@@ -1265,6 +1273,12 @@ function renderOffenders() {
       o.kills + " kill" + (o.kills === 1 ? "" : "s") + badges + "</h3>" +
       '<div class="muted" style="margin-bottom:8px">' + sub + "</div>" +
       o.victims.map(offenderVictimLine).join("");
+    var spot = "";
+    if (!presumed && o.spotted && !idf) {
+      spot = '<div class="muted" style="margin-top:6px">Spotted in a GetAllState dump: actor ' + num(o.sid) +
+        " was listed as a <b>" + esc(o.spotted.species) + "</b> on " + fmtWhen(o.spotted.ts) +
+        ". If the dump IDs are the tribe log's IDs, that is what this creature is — kill it and hang the trophy to close the case.</div>";
+    }
     var trophy = "";
     if (idf) {
       trophy = '<div style="margin-top:10px"><b>' + esc(idf.species) + "</b>" +
@@ -1289,7 +1303,7 @@ function renderOffenders() {
       '<button class="btn small" data-offsave="' + idx + '">' + (idf ? "Update trophy" : "We killed it — hang the trophy") + "</button>" +
       (idf ? ' <button class="btn small" data-offclear="' + idx + '">Remove identification</button>' : "") +
       '<span class="muted" id="off-status-' + idx + '" style="margin-left:8px"></span></div>';
-    return head + trophy + form + "</div>";
+    return head + spot + trophy + form + "</div>";
   }).join("");
   box.innerHTML = '<div class="panel" style="margin-bottom:16px"><h3>Repeat Offenders</h3>' +
     '<div class="muted">Two kinds of nemesis. The unnamed ones are tracked by the ID the game gave ' +
@@ -1365,6 +1379,88 @@ function clearOffender(idx) {
       renderDeaths();
     })
     .catch(function () { /* leave the card as it was */ });
+}
+/* ---------------- nemesis hunt ----------------
+   Hunting the unnamed killers by their IDs. Pick a dino type,
+   copy its GetAllState command, run it in-game as admin; the
+   server lists every living creature of that type in
+   ShooterGame.log, each with its actor ID. The console reads
+   the downloaded logs, marks each searched type here, and
+   flags any actor ID that equals a KillerSID. */
+var HUNT = null;
+function loadHunt() {
+  api("/api/hunt").then(function (r) { HUNT = r; renderHunt(); })
+    .catch(function () {
+      var b = $("#huntBox");
+      if (b) b.innerHTML = '<div class="panel"><h3>Nemesis Hunt</h3><div class="muted">Could not load the hunt board.</div></div>';
+    });
+}
+function renderHunt() {
+  var box = $("#huntBox");
+  if (!box || !HUNT) return;
+  var targets = HUNT.targets || [];
+  var tHtml = targets.length ? targets.map(function (t) {
+    return "<div class=\"trow\"><b>Creature #…" + String(t.sid).slice(-3) + "</b> — " + num(t.kills) +
+      " kill" + (t.kills === 1 ? "" : "s") +
+      (t.spotted ? ' · <span class="badge incr">spotted: ' + esc(t.spotted.species) + "</span>" : "") + "</div>";
+  }).join("") : '<div class="muted">No unnamed killers left to hunt — every one has been identified.</div>';
+  var matchCards = [];
+  (HUNT.classes || []).forEach(function (c) {
+    (c.matches || []).forEach(function (sid) {
+      matchCards.push('<div class="panel" style="margin-bottom:16px"><h3>ID match — Creature #…' +
+        String(sid).slice(-3) + " is a " + esc(c.name) + "?</h3>" +
+        '<div class="muted">Actor ' + num(sid) + " appeared in the " + esc(c.name) +
+        " dump on " + fmtWhen(c.ts) + ". If the dump's actor numbers are the same IDs the tribe log " +
+        "calls KillerSID — and this match is the test of exactly that — then the unnamed killer is a " +
+        esc(c.name) + ". Kill it and hang the trophy on the Repeat Offenders page to close the case.</div></div>");
+    });
+  });
+  var searched = (HUNT.classes || []).filter(function (c) { return c.searched; });
+  var sHtml = searched.length ? searched.map(function (c) {
+    return "<div class=\"trow\"><b>" + esc(c.name) + "</b> <span class=\"muted\">searched " + fmtWhen(c.ts) +
+      (c.actors != null ? " · " + num(c.actors) + " alive on the map" : "") +
+      (c.manual ? " · marked by hand" : "") +
+      (c.matches && c.matches.length ? ' · <span class="badge incr">ID match</span>' : "") +
+      "</span> <button class=\"btn small\" data-huntunmark=\"" + esc(c.class) + "\">Unmark</button></div>";
+  }).join("") : '<div class="muted">None yet. Pick a type above, run its command in-game, and this list fills itself in when the dump reaches the logs.</div>';
+  var opts = (HUNT.classes || []).map(function (c) {
+    return "<option value=\"" + esc(c.class) + "\">" + esc(c.name) + (c.searched ? " — searched ✓" : "") + "</option>";
+  }).join("");
+  box.innerHTML =
+    '<div class="panel" style="margin-bottom:16px"><h3>The Nemesis Hunt</h3>' +
+    '<div class="muted">The unnamed killers on the Repeat Offenders page carry only a numeric ID. ' +
+    "In-game, an admin command — GetAllState — makes the server list every living creature of one type, " +
+    "each with its own actor ID, in ShooterGame.log. If one of those IDs is a killer's ID, the type beside " +
+    "it names the nemesis. The console reads every downloaded log, marks each type you search, and flags " +
+    "any ID match automatically.</div>" +
+    '<div style="margin-top:10px">' + tHtml + "</div></div>" +
+    matchCards.join("") +
+    '<div class="panel" style="margin-bottom:16px"><h3>Run a search</h3>' +
+    '<div class="muted" style="margin-bottom:8px">1. In-game, open the admin console and log in: <b>enablecheats</b> with your admin password. ' +
+    "2. Pick a dino type here and copy its command. 3. Paste it in-game and run it. " +
+    "4. Give it a few minutes, then press Refresh Now (or wait for the next scan) — and if you want Vox to check right away, send the fresh ShooterGame.log from the Logs Folder.</div>" +
+    '<select id="huntSelect" style="margin-right:6px;max-width:320px">' + opts + "</select>" +
+    '<input id="huntCmd" type="text" readonly style="width:340px;margin-right:6px">' +
+    '<button class="btn small" id="huntCopy">Copy command</button>' +
+    '<span class="muted" id="huntCopyStatus" style="margin-left:8px"></span></div>' +
+    '<div class="panel"><h3>Progress — ' + num(HUNT.searched_count) + " of " + num(HUNT.total) + " types searched</h3>" + sHtml + "</div>";
+  var sel = $("#huntSelect"), cmd = $("#huntCmd");
+  function syncCmd() { cmd.value = sel.value ? "admincheat GetAllState " + sel.value : ""; }
+  sel.addEventListener("change", syncCmd);
+  syncCmd();
+  $("#huntCopy").addEventListener("click", function () {
+    var st = $("#huntCopyStatus");
+    function done() { if (st) st.textContent = "Copied."; }
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(cmd.value).then(done).catch(function () { cmd.select(); document.execCommand("copy"); done(); });
+    } else { cmd.select(); document.execCommand("copy"); done(); }
+  });
+  box.querySelectorAll("[data-huntunmark]").forEach(function (b) {
+    b.addEventListener("click", function () {
+      api("/api/hunt", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ class: b.getAttribute("data-huntunmark"), searched: false }) })
+        .then(function (r) { HUNT = r; renderHunt(); }).catch(function () {});
+    });
+  });
 }
 $("#deathSearch").addEventListener("input", renderDeaths);
 $("#deathSort").addEventListener("change", function () {

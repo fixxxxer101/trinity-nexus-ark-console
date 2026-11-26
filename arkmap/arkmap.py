@@ -38,7 +38,7 @@ from datetime import datetime, timezone
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
-VERSION = "2.17.0"
+VERSION = "2.18.0"
 
 APP_DIR = Path(__file__).resolve().parent
 CONFIG_DIR = Path.home() / ".arkmap"
@@ -1743,6 +1743,10 @@ def _scan_logs_quietly(cfg: dict) -> None:
         scan_logs(cfg)
     except Exception as exc:
         log(f"Log scan failed ({exc})")
+    try:
+        scan_hunt()
+    except Exception as exc:
+        log(f"Hunt scan failed ({exc})")
 
 
 def console_presence() -> dict:
@@ -1964,6 +1968,7 @@ def console_offenders() -> dict:
     data = _load_deaths()
     names = _player_names()
     identified = _load_offenders().get("identified", {})
+    spotted = _spotted_by_sid()
 
     def victim_of(e):
         victim = {"who": e.get("who", ""), "kind": e.get("kind"),
@@ -2009,6 +2014,8 @@ def console_offenders() -> dict:
         slot["last_ts"] = slot["victims"][-1]["ts"] if slot["victims"] else None
         slot["repeat"] = slot["kills"] >= 2
         slot["identified"] = identified.get(slot["key"]) or None
+        slot["spotted"] = (spotted.get(slot["sid"])
+                           if slot["kind"] == "sid" else None)
     out.sort(key=lambda s: (-s["kills"], s["first_ts"] or 0))
     return {"ok": True, "offenders": out}
 
@@ -2051,6 +2058,164 @@ def save_offender(sid, species, killed_by, killed_date, note,
             }
         _write_json_retry(OFFENDERS_PATH, data)
     return console_offenders()
+
+
+# ------------------------------------------------------- nemesis hunt --
+HUNT_PATH = SAVE_DIR / "hunt.json"
+_HUNT_LOCK = threading.Lock()
+# A GetAllState dump lists every living actor of one class in the
+# server log, one per line:
+#   [ts][490]21) Ankylo_Character_BP_C /Game/...:PersistentLevel.Ankylo_Character_BP_C_317
+# The trailing number is the actor's own ID - the same kind of ID
+# the tribe log records as a KillerSID. Whether the two ID spaces
+# are one is exactly what the hunt tests: the first KillerSID that
+# shows up in a dump proves it and names that nemesis.
+_DUMP_RE = re.compile(
+    r"\d+\)\s+([A-Za-z0-9_]+)\s+\S*:PersistentLevel\.\1_(\d+)\b")
+_CLASSES_CACHE: dict | None = None
+
+
+def _creature_classes() -> dict:
+    """{class name: display name} from the creature name table -
+    the hunt dropdown's dino types."""
+    global _CLASSES_CACHE
+    if _CLASSES_CACHE is None:
+        try:
+            raw = json.loads(
+                (APP_DIR / "creature_names.json").read_text(
+                    encoding="utf-8"))
+            _CLASSES_CACHE = {str(k): str(v) for k, v in raw.items()}
+        except Exception:
+            _CLASSES_CACHE = {}
+    return _CLASSES_CACHE
+
+
+def _load_hunt() -> dict:
+    """Hunt state: which classes have been searched (from dumps
+    found in the downloaded logs, or marked by hand) and the
+    fingerprints of the cached logs already hunt-scanned. Lives in
+    save/hunt.json - per-server data, never shipped."""
+    try:
+        raw = json.loads(HUNT_PATH.read_text(encoding="utf-8"))
+        if isinstance(raw, dict) and isinstance(raw.get("searched"), dict):
+            return raw
+    except Exception:
+        pass
+    return {"version": 1, "searched": {}, "scanned": {}}
+
+
+def _spotted_by_sid() -> dict:
+    """{KillerSID: {species, class, ts}} for unnamed killers whose
+    actor ID has appeared in a GetAllState dump."""
+    classes = _creature_classes()
+    out = {}
+    for cls, s in _load_hunt().get("searched", {}).items():
+        for sid in s.get("matches") or []:
+            out[int(sid)] = {"species": classes.get(cls, cls),
+                             "class": cls, "ts": s.get("ts")}
+    return out
+
+
+def scan_hunt() -> None:
+    """Read any newly changed cached logs for GetAllState dumps.
+    A dump marks its class searched (with the actor count from the
+    newest dump) and records any dumped actor whose ID equals an
+    unnamed killer's KillerSID as a match."""
+    if not LOGCACHE_DIR.is_dir():
+        return
+    sids = {int(e["by_sid"]) for e in _load_deaths()["events"]
+            if e.get("by_sid")}
+    if not sids:
+        return
+    with _HUNT_LOCK:
+        data = _load_hunt()
+        changed = False
+        for path in sorted(LOGCACHE_DIR.glob("*.log")):
+            try:
+                st = path.stat()
+            except Exception:
+                continue
+            fp = f"{st.st_size}:{int(st.st_mtime)}"
+            if data["scanned"].get(path.name) == fp:
+                continue
+            try:
+                text = path.read_text(encoding="utf-8",
+                                      errors="replace")
+            except Exception:
+                continue
+            found: dict = {}
+            for m in _DUMP_RE.finditer(text):
+                cls, actor_id = m.group(1), int(m.group(2))
+                slot = found.setdefault(cls, {"actors": 0,
+                                              "matches": []})
+                slot["actors"] += 1
+                if actor_id in sids and actor_id not in slot["matches"]:
+                    slot["matches"].append(actor_id)
+            for cls, slot in found.items():
+                prev = data["searched"].get(cls) or {}
+                data["searched"][cls] = {
+                    "ts": prev.get("ts") or int(time.time()),
+                    "actors": slot["actors"],
+                    "matches": sorted(set(prev.get("matches") or [])
+                                      | set(slot["matches"])),
+                }
+                changed = True
+            data["scanned"][path.name] = fp
+            changed = True
+        if changed:
+            _write_json_retry(HUNT_PATH, data)
+
+
+def console_hunt() -> dict:
+    """The Nemesis Hunt board: every dino type a GetAllState dump
+    can be run for, which ones have been searched, any KillerSID
+    matches, and the unnamed killers still being hunted."""
+    classes = _creature_classes()
+    searched = _load_hunt().get("searched", {})
+    out = []
+    for cls, name in classes.items():
+        s = searched.get(cls) or {}
+        out.append({"class": cls, "name": name,
+                    "searched": cls in searched,
+                    "ts": s.get("ts"), "actors": s.get("actors"),
+                    "matches": s.get("matches") or [],
+                    "manual": bool(s.get("manual"))})
+    for cls, s in searched.items():
+        if cls not in classes:
+            out.append({"class": cls, "name": cls, "searched": True,
+                        "ts": s.get("ts"), "actors": s.get("actors"),
+                        "matches": s.get("matches") or [],
+                        "manual": bool(s.get("manual"))})
+    out.sort(key=lambda c: (not c["matches"], c["name"].lower()))
+    targets = [{"sid": o["sid"], "kills": o["kills"],
+                "spotted": o.get("spotted")}
+               for o in console_offenders()["offenders"]
+               if o["kind"] == "sid" and not o.get("identified")]
+    return {"ok": True, "classes": out, "targets": targets,
+            "searched_count": sum(1 for c in out if c["searched"]),
+            "total": len(out)}
+
+
+def mark_hunt(cls, searched) -> dict:
+    """Mark or unmark one dino type by hand - for a run whose log
+    never reached the console. (The automatic mark comes from
+    dumps found in the downloaded logs.) Returns console_hunt()."""
+    cls = str(cls or "").strip()
+    if cls not in _creature_classes():
+        raise ApiError("Unknown dino type.")
+    with _HUNT_LOCK:
+        data = _load_hunt()
+        if searched:
+            prev = data["searched"].get(cls) or {}
+            data["searched"][cls] = {
+                "ts": prev.get("ts") or int(time.time()),
+                "actors": prev.get("actors"),
+                "matches": prev.get("matches") or [],
+                "manual": True}
+        else:
+            data["searched"].pop(cls, None)
+        _write_json_retry(HUNT_PATH, data)
+    return console_hunt()
 
 
 _NAMES_LOCK = threading.Lock()
@@ -2630,6 +2795,8 @@ class Handler(SimpleHTTPRequestHandler):
                 self._send_json(console_names())
             elif parts.path == "/api/offenders":
                 self._send_json(console_offenders())
+            elif parts.path == "/api/hunt":
+                self._send_json(console_hunt())
             elif parts.path == "/api/rcon/status":
                 self._send_json(rcon_status(cfg))
             elif parts.path == "/api/rcon/data":
@@ -2684,6 +2851,9 @@ class Handler(SimpleHTTPRequestHandler):
                                                 bool(payload.get("show"))))
             elif parts.path == "/api/open-logs-folder":
                 self._send_json(open_logs_folder())
+            elif parts.path == "/api/hunt":
+                self._send_json(mark_hunt(payload.get("class"),
+                                          bool(payload.get("searched"))))
             elif parts.path == "/api/offenders":
                 self._send_json(save_offender(
                     payload.get("sid"),

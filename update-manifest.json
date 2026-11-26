@@ -1,5 +1,5 @@
 {
-  "version": "2.17.0",
+  "version": "2.18.0",
   "files": [
     {
       "path": "RUN-ARK-MAP.bat",
@@ -18,8 +18,8 @@
     },
     {
       "path": "arkmap/arkmap.py",
-      "size": 115100,
-      "sha256": "6fc3772eddf5889e23086802a810074a9370306a4727b7980b9285b741594024"
+      "size": 122040,
+      "sha256": "3c82cff5384a03df40072b2d5e9f03df4355a46bf2906398fd2725a67bff60f8"
     },
     {
       "path": "arkmap/arkgui.py",
@@ -48,8 +48,8 @@
     },
     {
       "path": "arkmap/web/index.html",
-      "size": 124133,
-      "sha256": "aae42adaa97ce3236b724a3b7bca3c1edd986610a0ee4ff5ae883a2858bb0d0d"
+      "size": 130460,
+      "sha256": "1a56100290dbe8c818a1bff6fe965f854db7a0805e9f7dbf705be7e2d009a92b"
     },
     {
       "path": "arkmap/web/map.html",
