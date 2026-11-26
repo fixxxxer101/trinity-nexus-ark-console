@@ -38,7 +38,7 @@ from datetime import datetime, timezone
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
-VERSION = "2.11.0"
+VERSION = "2.12.0"
 
 APP_DIR = Path(__file__).resolve().parent
 CONFIG_DIR = Path.home() / ".arkmap"
@@ -2658,6 +2658,86 @@ def console_names() -> dict:
     return {"ok": True, "groups": out}
 
 
+# ------------------------------------------------------------ offenders --
+OFFENDERS_PATH = SAVE_DIR / "offenders.json"
+_OFFENDERS_LOCK = threading.Lock()
+
+
+def _load_offenders() -> dict:
+    """Identifications the family has recorded for unnamed killers:
+    {KillerSID-as-string: {species, killed_by, killed_date, note}}.
+    Lives in save/offenders.json - the console's own per-server data,
+    never shipped and never touched by the updater."""
+    try:
+        raw = json.loads(OFFENDERS_PATH.read_text(encoding="utf-8"))
+        if isinstance(raw, dict) and isinstance(raw.get("identified"), dict):
+            return raw
+    except Exception:
+        pass
+    return {"version": 1, "identified": {}}
+
+
+def console_offenders() -> dict:
+    """Every unnamed creature that has killed on this server, grouped
+    by its KillerSID: how many kills, who the victims were, and
+    whether the family has identified it and hung it as a trophy.
+    Sorted worst-first; 'repeat' marks the ones with 2+ kills."""
+    data = _load_deaths()
+    names = _player_names()
+    identified = _load_offenders().get("identified", {})
+    by_sid: dict = {}
+    for e in data["events"]:
+        if not e.get("by_sid"):
+            continue
+        sid = int(e["by_sid"])
+        slot = by_sid.setdefault(sid, {"sid": sid, "kills": 0,
+                                       "victims": []})
+        slot["kills"] += 1
+        victim = {"who": e.get("who", ""), "kind": e.get("kind"),
+                  "ts": e.get("ts"), "who_lvl": e.get("who_lvl")}
+        if e.get("kind") == "player":
+            victim["player"] = _resolve_name(e.get("who", ""), names)
+        if e.get("species"):
+            victim["species"] = e["species"]
+        slot["victims"].append(victim)
+    out = []
+    for sid, slot in by_sid.items():
+        slot["victims"].sort(key=lambda v: v.get("ts") or 0)
+        slot["first_ts"] = slot["victims"][0]["ts"] if slot["victims"] else None
+        slot["last_ts"] = slot["victims"][-1]["ts"] if slot["victims"] else None
+        slot["repeat"] = slot["kills"] >= 2
+        slot["identified"] = identified.get(str(sid)) or None
+        out.append(slot)
+    out.sort(key=lambda s: (-s["kills"], s["first_ts"] or 0))
+    return {"ok": True, "offenders": out}
+
+
+def save_offender(sid, species, killed_by, killed_date, note) -> dict:
+    """Record the family's identification of one unnamed killer -
+    what it turned out to be, who killed it, and when - which hangs
+    it as a trophy. A blank species clears the identification (the
+    creature goes back to unidentified). Returns the fresh
+    console_offenders()."""
+    try:
+        sid = int(sid)
+    except Exception:
+        raise ApiError("No creature ID given.")
+    species = (species or "").strip()
+    with _OFFENDERS_LOCK:
+        data = _load_offenders()
+        if not species:
+            data["identified"].pop(str(sid), None)
+        else:
+            data["identified"][str(sid)] = {
+                "species": species[:80],
+                "killed_by": (killed_by or "").strip()[:60],
+                "killed_date": (killed_date or "").strip()[:10],
+                "note": (note or "").strip()[:200],
+            }
+        _write_json_retry(OFFENDERS_PATH, data)
+    return console_offenders()
+
+
 _NAMES_LOCK = threading.Lock()
 
 
@@ -3233,6 +3313,8 @@ class Handler(SimpleHTTPRequestHandler):
                 self._send_json(console_tames())
             elif parts.path == "/api/names":
                 self._send_json(console_names())
+            elif parts.path == "/api/offenders":
+                self._send_json(console_offenders())
             elif parts.path == "/api/rcon/status":
                 self._send_json(rcon_status(cfg))
             elif parts.path == "/api/rcon/data":
@@ -3285,6 +3367,13 @@ class Handler(SimpleHTTPRequestHandler):
                 self._send_json(save_name_group(payload.get("keys") or [],
                                                 str(payload.get("nickname") or ""),
                                                 bool(payload.get("show"))))
+            elif parts.path == "/api/offenders":
+                self._send_json(save_offender(
+                    payload.get("sid"),
+                    str(payload.get("species") or ""),
+                    str(payload.get("killed_by") or ""),
+                    str(payload.get("killed_date") or ""),
+                    str(payload.get("note") or "")))
             else:
                 self._send_json({"ok": False, "error": "Unknown API route."}, 404)
         except RconError as exc:

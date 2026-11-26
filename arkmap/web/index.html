@@ -307,6 +307,7 @@
     <div class="panel" style="margin-top:16px" id="tallyPanel"><h3 id="tallyTitle">Overall Tallies — Deaths by Player</h3><div id="chartPlayers"></div></div>
     <div id="deathSections" style="margin-top:16px"></div>
     <div id="deathTames"></div>
+    <div id="deathOffenders"></div>
     <div class="panel" style="margin-top:16px">
       <h3>Death Log</h3>
       <table class="grid"><thead><tr><th class="sortable" data-sk="ts">When ⇅</th><th class="sortable" data-sk="who">Who ⇅</th><th class="sortable" data-sk="by">Killed by ⇅</th><th>Source log</th></tr></thead><tbody id="deathTable"><tr><td colspan="4" class="muted">Loading…</td></tr></tbody></table>
@@ -1055,7 +1056,11 @@ function killerType(e) {
     var s = String(e.by).replace(/^(a|an|the)\s+/i, "").trim();
     if (s) return s;
   }
-  if (e.by_sid) return "Unnamed creature (…" + String(e.by_sid).slice(-3) + ")";
+  if (e.by_sid) {
+    var idf = OFFENDERS[e.by_sid];
+    if (idf && idf.species) return idf.species;
+    return "Unnamed creature (…" + String(e.by_sid).slice(-3) + ")";
+  }
   return "Environmental (no killer)";
 }
 function countBy(list, fn) {
@@ -1179,12 +1184,13 @@ function renderDeaths() {
     return "<tr><td>" + fmtWhen(e.ts) + "</td>" +
       "<td><b>" + esc(e.who) + "</b>" + (e.who_lvl ? ' <span class="muted">Lvl ' + num(e.who_lvl) + "</span>" : "") +
       (e.kind === "player" ? ' <span class="badge incr">player</span>' : ' <span class="badge plain">tame' + (e.species ? " · " + esc(e.species) : "") + "</span>") + "</td>" +
-      "<td>" + (e.by ? esc(e.by) + (e.by_lvl ? ' <span class="muted">Lvl ' + num(e.by_lvl) + "</span>" : "") : (e.by_sid ? '<span class="muted">creature — name not recorded</span>' : '<span class="muted">environmental — no killer</span>')) + "</td>" +
+      "<td>" + (e.by ? esc(e.by) + (e.by_lvl ? ' <span class="muted">Lvl ' + num(e.by_lvl) + "</span>" : "") : (e.by_sid ? (OFFENDERS[e.by_sid] && OFFENDERS[e.by_sid].species ? esc(OFFENDERS[e.by_sid].species) + ' <span class="muted">· identified</span>' : '<span class="muted">creature — name not recorded</span>') : '<span class="muted">environmental — no killer</span>')) + "</td>" +
       '<td class="muted" title="' + esc(e.raw || "") + '">' + esc(e.source || "") + "</td></tr>";
   }).join("") : '<tr><td colspan="4" class="muted">No deaths match.</td></tr>';
   $("#deathShowing").textContent = "Showing " + cap.length + " of " + sorted.length + (tamesMode ? " tame losses" : " deaths") + (deathPlayer && !tamesMode ? " for " + deathPlayer : "") + ".";
 }
 function loadDeaths() {
+  loadOffenders();
   api("/api/deaths").then(function (r) {
     DEATHS = r.events || [];
     DEATHS.forEach(function (e) { if (e.kind === "player" && e.player) e.who = e.player; });
@@ -1193,6 +1199,121 @@ function loadDeaths() {
   }).catch(function (e) {
     $("#deathTable").innerHTML = '<tr><td colspan="4" class="muted">Could not load deaths: ' + esc(e.message) + "</td></tr>";
   });
+}
+
+/* ---------------- repeat offenders ----------------
+   The unnamed killers, tracked by the numeric ID the game gave
+   them. Kill one in-game, come back here, and record what it was:
+   the identification hangs it as a trophy and its name replaces
+   "unnamed creature" everywhere the deaths are shown. */
+var OFFENDERS = {};
+var OFFENDER_LIST = [];
+function loadOffenders() {
+  api("/api/offenders").then(function (r) {
+    OFFENDER_LIST = r.offenders || [];
+    OFFENDERS = {};
+    OFFENDER_LIST.forEach(function (o) { if (o.identified) OFFENDERS[o.sid] = o.identified; });
+    renderOffenders();
+    if (DEATHS.length) renderDeaths();
+  }).catch(function () { /* the panel just stays empty */ });
+}
+function offenderVictimLine(v) {
+  var name = v.kind === "player" ? (v.player || v.who) : v.who;
+  var extra = v.kind === "tame" && v.species ? " · " + v.species : "";
+  return "<div class=\"trow\"><span class=\"muted\">" + fmtWhen(v.ts) + "</span> &nbsp;<b>" +
+    esc(name) + "</b>" + esc(extra) +
+    (v.who_lvl ? ' <span class="muted">Lvl ' + num(v.who_lvl) + "</span>" : "") + "</div>";
+}
+function renderOffenders() {
+  var box = $("#deathOffenders");
+  if (!box) return;
+  if (!OFFENDER_LIST.length) { box.innerHTML = ""; return; }
+  var today = new Date().toISOString().slice(0, 10);
+  var players = [];
+  DEATHS.forEach(function (e) { if (e.kind === "player" && players.indexOf(e.who) < 0) players.push(e.who); });
+  var cards = OFFENDER_LIST.map(function (o) {
+    var idf = o.identified;
+    var title = idf && idf.species ? esc(idf.species) : "Creature #…" + String(o.sid).slice(-3);
+    var badges = (o.repeat ? ' <span class="badge incr">repeat offender</span>' : "") +
+      (idf ? ' <span class="badge plain">trophy</span>' : "");
+    var head = '<div class="panel" style="margin-bottom:16px"><h3>' + title + " — " +
+      o.kills + " kill" + (o.kills === 1 ? "" : "s") + badges + "</h3>" +
+      '<div class="muted" style="margin-bottom:8px">Game ID ' + num(o.sid) +
+      " · first seen " + fmtWhen(o.first_ts) + " · last seen " + fmtWhen(o.last_ts) + "</div>" +
+      o.victims.map(offenderVictimLine).join("");
+    var trophy = "";
+    if (idf) {
+      trophy = '<div style="margin-top:10px"><b>' + esc(idf.species) + "</b>" +
+        (idf.killed_by ? ' — killed by <b>' + esc(idf.killed_by) + "</b>" : "") +
+        (idf.killed_date ? ' <span class="muted">on ' + esc(idf.killed_date) + "</span>" : "") +
+        (idf.note ? '<div class="muted">' + esc(idf.note) + "</div>" : "") +
+        ' <button class="btn small" data-offedit="' + num(o.sid) + '">Edit</button></div>';
+    }
+    var form = '<div id="offform-' + num(o.sid) + '" style="margin-top:10px' + (idf ? ";display:none" : "") + '">' +
+      '<div class="muted" style="margin-bottom:6px">' +
+      (idf ? "Update the identification:" : "Killed it? Record what it was and hang it as a trophy:") + "</div>" +
+      '<input id="off-species-' + num(o.sid) + '" type="text" placeholder="What was it? (e.g. Alpha Karkinos)" value="' + (idf ? esc(idf.species || "") : "") + '" style="margin-right:6px">' +
+      '<input id="off-by-' + num(o.sid) + '" type="text" list="offPlayers" placeholder="Killed by" value="' + (idf ? esc(idf.killed_by || "") : "") + '" style="margin-right:6px">' +
+      '<input id="off-date-' + num(o.sid) + '" type="date" value="' + (idf && idf.killed_date ? esc(idf.killed_date) : today) + '" style="margin-right:6px">' +
+      '<input id="off-note-' + num(o.sid) + '" type="text" placeholder="Note (optional)" value="' + (idf ? esc(idf.note || "") : "") + '" style="margin-right:6px">' +
+      '<button class="btn small" data-offsave="' + num(o.sid) + '">Hang it as a trophy</button>' +
+      (idf ? ' <button class="btn small" data-offclear="' + num(o.sid) + '">Remove identification</button>' : "") +
+      '<span class="muted" id="off-status-' + num(o.sid) + '" style="margin-left:8px"></span></div>';
+    return head + trophy + form + "</div>";
+  }).join("");
+  box.innerHTML = '<div class="panel" style="margin-bottom:16px"><h3>Repeat Offenders</h3>' +
+    '<div class="muted">Creatures the logs could not name, tracked by the ID the game gave each one. ' +
+    "When you kill one, record what it was here — it becomes a trophy, and its name shows " +
+    "everywhere that creature's kills are listed.</div></div>" +
+    '<datalist id="offPlayers">' + players.map(function (p) { return "<option value=\"" + esc(p) + "\">"; }).join("") + "</datalist>" +
+    cards;
+  box.querySelectorAll("[data-offsave]").forEach(function (b) {
+    b.addEventListener("click", function () { saveOffender(+b.getAttribute("data-offsave")); });
+  });
+  box.querySelectorAll("[data-offclear]").forEach(function (b) {
+    b.addEventListener("click", function () { clearOffender(+b.getAttribute("data-offclear")); });
+  });
+  box.querySelectorAll("[data-offedit]").forEach(function (b) {
+    b.addEventListener("click", function () {
+      var f = $("#offform-" + b.getAttribute("data-offedit"));
+      if (f) f.style.display = f.style.display === "none" ? "" : "none";
+    });
+  });
+}
+function saveOffender(sid) {
+  var status = $("#off-status-" + sid);
+  var body = {
+    sid: sid,
+    species: ($("#off-species-" + sid) || {}).value || "",
+    killed_by: ($("#off-by-" + sid) || {}).value || "",
+    killed_date: ($("#off-date-" + sid) || {}).value || "",
+    note: ($("#off-note-" + sid) || {}).value || ""
+  };
+  if (!body.species.trim()) {
+    if (status) status.textContent = "Name what it was first.";
+    return;
+  }
+  if (status) status.textContent = "Saving…";
+  api("/api/offenders", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) })
+    .then(function (r) {
+      OFFENDER_LIST = r.offenders || [];
+      OFFENDERS = {};
+      OFFENDER_LIST.forEach(function (o) { if (o.identified) OFFENDERS[o.sid] = o.identified; });
+      renderOffenders();
+      renderDeaths();
+    })
+    .catch(function (e) { if (status) status.textContent = "Save failed: " + e.message; });
+}
+function clearOffender(sid) {
+  api("/api/offenders", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ sid: sid, species: "" }) })
+    .then(function (r) {
+      OFFENDER_LIST = r.offenders || [];
+      OFFENDERS = {};
+      OFFENDER_LIST.forEach(function (o) { if (o.identified) OFFENDERS[o.sid] = o.identified; });
+      renderOffenders();
+      renderDeaths();
+    })
+    .catch(function () { /* leave the card as it was */ });
 }
 $("#deathSearch").addEventListener("input", renderDeaths);
 $("#deathSort").addEventListener("change", function () {
