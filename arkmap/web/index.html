@@ -993,7 +993,7 @@ function renderPlayerTab() {
   var avgSess = p.sessions ? total / p.sessions : 0;
   var perDeath = myDeaths.length ? total / myDeaths.length : 0;
   var myDph = total ? myDeaths.length / (total / 3600) : 0;
-  var topKiller = countBy(myDeaths, function (e) { return killerType(e.by); })[0];
+  var topKiller = countBy(myDeaths, function (e) { return killerType(e); })[0];
   $("#ptabPlayer").innerHTML =
     '<div class="grid cards">' +
     '<div class="panel stat"><div class="lab">Level</div><div class="val">' + (cur || "—") + '</div><div class="sub">' + (lp ? num(lp.sightings) + " sightings in the logs" : "no sightings yet") + '</div></div>' +
@@ -1008,7 +1008,7 @@ function renderPlayerTab() {
     '<div class="muted" style="margin-bottom:10px">Highlighted rungs are proven by a log sighting on that date. The rest were passed through between sightings — the logs only write a level down when a death or level-up line records it, so the scanner collects every sighting it can find.</div>' +
     (cur ? ladder : '<span class="muted">No level sightings yet.</span>') + '</div>' +
     '<div style="margin-top:16px">' +
-    '<div class="panel"><h3>' + esc(name) + ' — Deaths by Creature</h3>' + hbars(countBy(myDeaths, function (e) { return killerType(e.by); })) + '</div></div>' +
+    '<div class="panel"><h3>' + esc(name) + ' — Deaths by Creature</h3>' + hbars(countBy(myDeaths, function (e) { return killerType(e); })) + '</div></div>' +
     '<div class="panel" style="margin-top:16px"><h3>Recent Logins &amp; Logouts</h3>' +
     (myAct.length ? myAct.map(function (e) { return '<div class="trow"><span class="muted">' + fmtWhen(e.ts) + "</span> &nbsp;" + (e.action === "on" ? '<span class="badge incr">logged on</span>' : '<span class="badge plain">logged off</span>') + "</div>"; }).join("") : '<span class="muted">None recorded.</span>') + '</div>';
 }
@@ -1042,10 +1042,21 @@ function loadPlayerLists() {
 var DEATHS = [];
 var deathPlayer = "";
 var deathSortKey = "ts", deathSortDir = -1;
-function killerType(by) {
-  if (!by) return "Unknown / environment";
-  var s = String(by).replace(/^(a|an|the)\s+/i, "").trim();
-  return s || "Unknown / environment";
+/* The killer label for a death event. The game records a creature
+   kill one of two ways: the killer's name, or - when the name could
+   not be written - its numeric KillerSID. A death with neither had
+   no killer at all (a fall, drowning, starvation, the cold: the
+   environment), which is a different thing from an unnamed creature
+   and is labelled so. Same-SID kills share a label, so one animal's
+   repeat kills group together. */
+function killerType(e) {
+  if (!e) return "Environmental (no killer)";
+  if (e.by) {
+    var s = String(e.by).replace(/^(a|an|the)\s+/i, "").trim();
+    if (s) return s;
+  }
+  if (e.by_sid) return "Unnamed creature (…" + String(e.by_sid).slice(-3) + ")";
+  return "Environmental (no killer)";
 }
 function countBy(list, fn) {
   var out = Object.create(null);
@@ -1126,7 +1137,7 @@ function renderDeaths() {
     var first = DEATHS.slice().sort(function (a, b) { return (a.ts || 0) - (b.ts || 0); })[0];
     $("#deathSince").textContent = "From the server's own logs · since " + (first.ts ? new Date(first.ts * 1000).toLocaleDateString([], { month: "short", day: "numeric", year: "numeric" }) : "—");
   }
-  var killers = countBy(ev, function (e) { return killerType(e.by); });
+  var killers = countBy(ev, function (e) { return killerType(e); });
   var byWho = countBy(ev, function (e) { return tamesMode ? (e.species || "Unknown type") : e.who; });
   var lvls = ev.filter(function (e) { return e.by_lvl; }).map(function (e) { return e.by_lvl; });
   var avgLvl = lvls.length ? Math.round(lvls.reduce(function (s, x) { return s + x; }, 0) / lvls.length) : null;
@@ -1147,11 +1158,11 @@ function renderDeaths() {
   if (!deathPlayer) {
     $("#deathSections").innerHTML = countBy(ev, function (e) { return e.who; }).map(function (r) {
       var mine = ev.filter(function (e) { return e.who === r.label; });
-      var mk = countBy(mine, function (e) { return killerType(e.by); });
+      var mk = countBy(mine, function (e) { return killerType(e); });
       var last = mine.slice().sort(function (a, b) { return (b.ts || 0) - (a.ts || 0); })[0];
       return '<div class="panel" style="margin-bottom:16px"><h3>' + esc(r.label) + " — " + mine.length + " death" + (mine.length === 1 ? "" : "s") + "</h3>" +
         '<div class="muted" style="margin-bottom:10px">Deadliest for them: <b style="color:var(--text)">' + (mk.length ? esc(mk[0].label) : "—") + "</b>" +
-        (last && last.ts ? " · last death " + fmtWhen(last.ts) + (last.by ? " by " + esc(killerType(last.by)) : "") : "") + "</div>" +
+        (last && last.ts ? " · last death " + fmtWhen(last.ts) + " (" + esc(killerType(last)) + ")" : "") + "</div>" +
         hbars(mk.slice(0, 8)) + "</div>";
     }).join("");
     var tamesAll = DEATHS.filter(function (e) { return e.kind === "tame"; });
@@ -1168,7 +1179,7 @@ function renderDeaths() {
     return "<tr><td>" + fmtWhen(e.ts) + "</td>" +
       "<td><b>" + esc(e.who) + "</b>" + (e.who_lvl ? ' <span class="muted">Lvl ' + num(e.who_lvl) + "</span>" : "") +
       (e.kind === "player" ? ' <span class="badge incr">player</span>' : ' <span class="badge plain">tame' + (e.species ? " · " + esc(e.species) : "") + "</span>") + "</td>" +
-      "<td>" + (e.by ? esc(e.by) + (e.by_lvl ? ' <span class="muted">Lvl ' + num(e.by_lvl) + "</span>" : "") : '<span class="muted">unknown</span>') + "</td>" +
+      "<td>" + (e.by ? esc(e.by) + (e.by_lvl ? ' <span class="muted">Lvl ' + num(e.by_lvl) + "</span>" : "") : (e.by_sid ? '<span class="muted">creature — name not recorded</span>' : '<span class="muted">environmental — no killer</span>')) + "</td>" +
       '<td class="muted" title="' + esc(e.raw || "") + '">' + esc(e.source || "") + "</td></tr>";
   }).join("") : '<tr><td colspan="4" class="muted">No deaths match.</td></tr>';
   $("#deathShowing").textContent = "Showing " + cap.length + " of " + sorted.length + (tamesMode ? " tame losses" : " deaths") + (deathPlayer && !tamesMode ? " for " + deathPlayer : "") + ".";
@@ -1234,7 +1245,7 @@ function renderTameAnalytics(rows) {
   $("#tmBreedChart").innerHTML = hbars(breeds, false, true);
   var dead = rows.filter(function (t) { return t.status === "dead" && t.death; });
   $("#tmKillerChart").innerHTML = dead.length
-    ? hbars(countBy(dead, function (t) { return killerType(t.death.by); }), true)
+    ? hbars(countBy(dead, function (t) { return killerType(t.death); }), true)
     : '<span class="muted">No deaths in this view.</span>';
 }
 function renderTames() {
@@ -1261,7 +1272,7 @@ function renderTames() {
     var last = "—";
     if (t.last_ts) {
       last = fmtWhen(t.last_ts) + ' <span class="muted">' + esc(t.last_kind || "") + "</span>";
-      if (t.status === "dead" && t.death && t.death.by) last += ' <span class="muted">by ' + esc(killerType(t.death.by)) + "</span>";
+      if (t.status === "dead" && t.death) last += ' <span class="muted">' + esc(t.death.by ? "by " + killerType(t.death) : killerType(t.death)) + "</span>";
       if (t.status === "unclaimed" && t.unclaimed_by) last += ' <span class="muted">by ' + esc(t.unclaimed_by) + "</span>";
     }
     return "<tr><td><b>" + esc(t.name) + "</b></td>" +

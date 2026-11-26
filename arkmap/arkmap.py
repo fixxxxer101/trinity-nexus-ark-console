@@ -38,7 +38,7 @@ from datetime import datetime, timezone
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
-VERSION = "2.10.0"
+VERSION = "2.11.0"
 
 APP_DIR = Path(__file__).resolve().parent
 CONFIG_DIR = Path.home() / ".arkmap"
@@ -1308,7 +1308,7 @@ PARSER_VERSION = 3
 # known format) get one full re-read of every log file per sampler
 # version, tracked per file in each tracker's sampler_scanned map, so
 # a new sampler still sees the whole history exactly once.
-SAMPLER_V = 6
+SAMPLER_V = 7
 
 
 def _species_names() -> set:
@@ -1378,7 +1378,12 @@ def parse_deaths(text: str, source: str) -> list[dict]:
                 if m.group(4):
                     by, by_lvl = _split_level(m.group(4))
             else:
-                m = _PLAIN_DEATH_RE.search(clean)
+                # The SID form must be tried BEFORE the plain form:
+                # a KillerSID line also matches the plain pattern
+                # (with an empty killer), so plain-first silently
+                # dropped the SID - the five real KillerSID deaths in
+                # this server's history all lost theirs that way.
+                m = _SID_DEATH_RE.search(clean)
                 if m and not m.group(1).strip().lower().startswith(("tribemember", "your ")):
                     who, who_lvl = m.group(1).strip(), int(m.group(2))
                     parens = [p.strip() for p in re.findall(r"\(([^)]*)\)", m.group(3)) if p.strip()]
@@ -1386,10 +1391,9 @@ def parse_deaths(text: str, source: str) -> list[dict]:
                     if species is None and len(parens) >= 2:
                         species = parens[0]
                     kind = "tame" if species else "player"
-                    if m.group(4):
-                        by, by_lvl = _split_level(m.group(4))
+                    by_sid = int(m.group(4))
                 if not who:
-                    m = _SID_DEATH_RE.search(clean)
+                    m = _PLAIN_DEATH_RE.search(clean)
                     if m and not m.group(1).strip().lower().startswith(("tribemember", "your ")):
                         who, who_lvl = m.group(1).strip(), int(m.group(2))
                         parens = [p.strip() for p in re.findall(r"\(([^)]*)\)", m.group(3)) if p.strip()]
@@ -1397,7 +1401,8 @@ def parse_deaths(text: str, source: str) -> list[dict]:
                         if species is None and len(parens) >= 2:
                             species = parens[0]
                         kind = "tame" if species else "player"
-                        by_sid = int(m.group(4))
+                        if m.group(4):
+                            by, by_lvl = _split_level(m.group(4))
         if not who:
             continue
         events.append({"ts": ts, "who": who, "who_lvl": who_lvl,
@@ -1495,10 +1500,25 @@ def _save_deaths(data: dict) -> None:
 
 def _absorb_deaths(data: dict, text: str, name: str) -> list[dict]:
     seen = {_death_key(e) for e in data["events"]}
+    stored = {_death_key(e): e for e in data["events"]}
     new = []
     for ev in parse_deaths(text, name):
         key = _death_key(ev)
         if key in seen:
+            # A twin form of an already-recorded death: not a new
+            # death, but it may carry killer detail the stored form
+            # lacked (the tribe line names nobody while the server
+            # line carries the KillerSID). Adopt any field the
+            # stored record is missing so re-reads backfill it.
+            old = stored.get(key)
+            if old is not None:
+                if not old.get("by") and ev.get("by"):
+                    old["by"] = ev["by"]
+                    old["by_lvl"] = ev.get("by_lvl")
+                if not old.get("by_sid") and ev.get("by_sid"):
+                    old["by_sid"] = ev["by_sid"]
+                if not old.get("species") and ev.get("species"):
+                    old["species"] = ev["species"]
             continue
         seen.add(key)
         data["events"].append(ev)
@@ -1824,7 +1844,8 @@ def _absorb_tames(data: dict, text: str, name: str,
             evs.append({"ts": e["ts"], "kind": "death", "name": e["who"],
                         "species": e.get("species") or "",
                         "lvl": e.get("who_lvl"),
-                        "by": e.get("by") or "", "raw": e["raw"]})
+                        "by": e.get("by") or "", "by_sid": e.get("by_sid"),
+                        "raw": e["raw"]})
     evs.sort(key=lambda x: (x["ts"] or 0))
     touched = []
     for e in evs:
@@ -1864,7 +1885,13 @@ def _absorb_tames(data: dict, text: str, name: str,
             if r["death"] is None or (ts is not None and r["death"]["ts"]
                                       is not None
                                       and ts < r["death"]["ts"]):
-                r["death"] = {"ts": ts, "by": e.get("by", "")}
+                r["death"] = {"ts": ts, "by": e.get("by", ""),
+                              "by_sid": e.get("by_sid")}
+            elif (ts is not None and r["death"].get("ts") == ts
+                    and not r["death"].get("by_sid") and e.get("by_sid")):
+                # Same death re-read (sampler pass): backfill the
+                # KillerSID the original absorb could not capture.
+                r["death"]["by_sid"] = e["by_sid"]
         elif e["kind"] in ("froze", "release"):
             if r["death"] is None and (r["last_ts"] is None
                                        or ts is None
@@ -2376,9 +2403,13 @@ def scan_logs(cfg: dict) -> None:
                     k_events = parse_kills(text, name)
                 _absorb_levels(levels, d_events, k_events, parse_levelups(text, name))
             if "tames" in need_names:
-                if d_events is None:
-                    d_events = parse_deaths(text, name)
-                _absorb_tames(tames, text, name, d_events)
+                # Always a fresh full parse, not the deaths absorb's
+                # new-only list: on a sampler re-read every death is
+                # already recorded, so the new-only list is empty and
+                # tame death records would never pick up backfilled
+                # killer detail (the KillerSID). _absorb_tames is
+                # built to re-absorb the same lines safely.
+                _absorb_tames(tames, text, name, parse_deaths(text, name))
         except Exception as exc:
             # One poisonous file must not stall the scanner: the file
             # is still stamped scanned below (its kept copy in

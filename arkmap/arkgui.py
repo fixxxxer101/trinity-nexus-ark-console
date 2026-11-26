@@ -55,6 +55,13 @@ EMBLEM_PATH = HERE / "emblem.png"
 # updater (which leaves save/ alone by design).
 GUI_SETTINGS_PATH = arkmap.SAVE_DIR / "gui_settings.json"
 
+# GUI refresh timer choices: (seconds, menu label). 0 is Off - the
+# stats poller then never re-renders on its own (Refresh Now still
+# works). This window only; the web console refreshes itself.
+POLL_CHOICES = (0, 4, 15, 30, 60, 300)
+POLL_LABELS = {0: "Off", 4: "4 sec", 15: "15 sec", 30: "30 sec",
+               60: "1 min", 300: "5 min"}
+
 
 def _load_gui_settings() -> dict:
     try:
@@ -104,9 +111,21 @@ def _fmt_when(ts) -> str:
     return time.strftime("%b %d, %I:%M %p", time.localtime(ts))
 
 
-def _creature(name) -> str:
-    s = re.sub(r"^(a|an|the)\s+", "", str(name or ""), flags=re.I).strip()
-    return s or "Unknown / environment"
+def _creature(e) -> str:
+    """The killer label for a death event, matching the web console:
+    the killer's name when the game wrote one; 'Unnamed creature'
+    when it recorded only the killer's numeric KillerSID (same SID,
+    same label, so one animal's repeat kills group together); and
+    'Environmental (no killer)' when it recorded neither - a fall,
+    drowning, starvation and the like, not a creature at all."""
+    if not isinstance(e, dict):
+        e = {"by": e}
+    s = re.sub(r"^(a|an|the)\s+", "", str(e.get("by") or ""), flags=re.I).strip()
+    if s:
+        return s
+    if e.get("by_sid"):
+        return f"Unnamed creature (…{str(e['by_sid'])[-3:]})"
+    return "Environmental (no killer)"
 
 
 def _dark_titlebar(widget) -> None:
@@ -368,11 +387,22 @@ class ConsoleGui:
         # the map-polling flag is set before the backend starts.
         self.settings = _load_gui_settings()
         arkmap.set_map_polling(bool(self.settings.get("map_polling", True)))
+        # GUI refresh timer (this window only - the web console has
+        # its own): how often the stats poller re-renders the tabs.
+        # 0 is Off. Anything unrecognised falls back to the 4-second
+        # cadence the GUI originally shipped with.
+        try:
+            _poll = int(self.settings.get("poll_seconds", 4))
+        except Exception:
+            _poll = 4
+        self._poll_seconds = _poll if _poll in POLL_CHOICES else 4
+        self.poll_var = None
         saved_tab = self.settings.get("tab")
         if isinstance(saved_tab, str) and saved_tab:
             self._tab = saved_tab
         self._wrap_labels: list = []
         self._player_inners: dict = {}
+        self._player_canvases: dict = {}
         self.map_poll_var = None
         self._build()
 
@@ -390,10 +420,13 @@ class ConsoleGui:
                 r"\d+x\d+([+-]\d+){2}", geo):
             root.geometry(geo)
         else:
-            w = min(640, root.winfo_screenwidth() - 40)
-            h = min(800, root.winfo_screenheight() - 60)
+            # Default: wide, not tall - the old 640x800 opened as a
+            # narrow tower; the content is tables and charts that
+            # want width, and 800px was already crowding the screen.
+            w = min(1120, root.winfo_screenwidth() - 40)
+            h = min(720, root.winfo_screenheight() - 60)
             root.geometry(f"{w}x{h}")
-        root.minsize(520, 600)
+        root.minsize(560, 540)
         root.bind("<Configure>", self._on_root_configure)
         if sys.platform == "win32" and ICO_PATH.exists():
             try:
@@ -455,6 +488,31 @@ class ConsoleGui:
                        activeforeground=TEXT, selectcolor=PANEL,
                        font=("Segoe UI", 10), cursor="hand2").pack(
                            side="left", padx=(4, 0))
+        # GUI refresh timer: how often this window re-reads and
+        # re-renders its tabs. Every re-render used to land every
+        # 4 seconds and throw the reader back to the top of the tab;
+        # the timer is now the user's choice (Off included), it is
+        # remembered, and a re-render keeps the scroll position.
+        tk.Label(btns, text="Refresh", bg=BG, fg=MUTED,
+                 font=("Segoe UI", 10)).pack(side="left", padx=(14, 4))
+        self.poll_var = tk.StringVar(
+            value=POLL_LABELS[self._poll_seconds])
+        poll_menu = tk.OptionMenu(
+            btns, self.poll_var,
+            *[POLL_LABELS[s] for s in POLL_CHOICES],
+            command=self._on_poll_change)
+        poll_menu.configure(bg=PANEL, fg=TEXT, activebackground=TAB_ON,
+                            activeforeground=TEXT, relief="flat",
+                            font=("Segoe UI", 10), cursor="hand2",
+                            highlightbackground=BORDER,
+                            highlightthickness=1)
+        try:
+            poll_menu["menu"].configure(bg=PANEL, fg=TEXT,
+                                        activebackground=TAB_ON,
+                                        activeforeground=TEXT)
+        except Exception:
+            pass
+        poll_menu.pack(side="left")
 
         help_label = tk.Label(
             root,
@@ -463,7 +521,11 @@ class ConsoleGui:
                  "the tray icon to bring it back; right-click it to quit. "
                  "Map polling pulls the world save for the map; on Xbox "
                  "Nitrado never releases it, so it can be switched off - "
-                 "deaths, tames and players keep tracking either way.",
+                 "deaths, tames and players keep tracking either way. "
+                 "Refresh is this window's own update timer: set it to "
+                 "Off and the window stops re-drawing itself (Refresh "
+                 "Now still works) and never throws you back to the top "
+                 "of a tab while you are reading it.",
             bg=BG, fg=MUTED, font=("Segoe UI", 9), wraplength=540,
             justify="left")
         help_label.pack(fill="x", padx=16, pady=(8, 12))
@@ -501,7 +563,15 @@ class ConsoleGui:
             pass
         self.settings["tab"] = self._tab
         self.settings["map_polling"] = arkmap.map_polling_enabled()
+        self.settings["poll_seconds"] = self._poll_seconds
         _save_gui_settings(self.settings)
+
+    def _on_poll_change(self, label: str) -> None:
+        for secs, text in POLL_LABELS.items():
+            if text == label:
+                self._poll_seconds = secs
+                break
+        self._persist_settings()
 
     def _on_map_poll_toggle(self) -> None:
         arkmap.set_map_polling(bool(self.map_poll_var.get()))
@@ -638,9 +708,10 @@ class ConsoleGui:
         else:
             frame = self._player_frames.get(key)
             if frame is None:
-                frame, inner = self._make_scroll_tab()
+                frame, inner, canvas = self._make_scroll_tab()
                 self._player_frames[key] = frame
                 self._player_inners[key] = inner
+                self._player_canvases[key] = canvas
             frame.pack(fill="both", expand=True)
             self._render_player_tab(key)
 
@@ -664,7 +735,7 @@ class ConsoleGui:
         canvas.configure(yscrollcommand=scroll.set)
         scroll.pack(side="right", fill="y")
         canvas.pack(side="left", fill="both", expand=True)
-        return frame, inner
+        return frame, inner, canvas
 
     # ---------------------------------------------------------- names --
     def _build_names(self) -> None:
@@ -855,6 +926,16 @@ class ConsoleGui:
         frame = self._player_inners.get(name)
         if frame is None:
             return
+        # The stats refresh rebuilds this page; without this, every
+        # refresh threw the reader back to the top of the tab. Keep
+        # the scroll fraction and put it back after the rebuild.
+        canvas = self._player_canvases.get(name)
+        frac = None
+        if canvas is not None:
+            try:
+                frac = canvas.yview()[0]
+            except Exception:
+                frac = None
         for child in frame.winfo_children():
             child.destroy()
         s = self._last_stats or {}
@@ -934,6 +1015,13 @@ class ConsoleGui:
             bars.pack(fill="x")
             frame.update_idletasks()
             self._draw_bars(bars, rows_data, color)
+
+        if canvas is not None and frac:
+            try:
+                frame.update_idletasks()
+                canvas.yview_moveto(frac)
+            except Exception:
+                pass
 
     def _draw_step_chart(self, canvas, series: list) -> None:
         canvas.delete("all")
@@ -1236,16 +1324,31 @@ class ConsoleGui:
         self.root.mainloop()
 
     def _poller(self) -> None:
+        # One collection at startup whatever the timer says, so the
+        # window never opens empty; after that the GUI refresh timer
+        # rules (0 = Off: no automatic re-renders, Refresh Now still
+        # works). The wait runs in half-second slices against the
+        # live setting, so changing the timer - including to Off -
+        # bites at once instead of when the old interval expires.
+        first = True
         while not self.stop.is_set():
-            try:
-                self.q.put(("stats", _collect_stats(self.cfg, self.port)))
-            except Exception:
-                # A dead poller used to be invisible: stale stats
-                # forever, nothing logged (stderr is devnull under
-                # pythonw). Log and keep polling.
-                arkmap.log("GUI: stats collection failed:\n"
-                           + traceback.format_exc(limit=3))
-            self.stop.wait(4)
+            if first or self._poll_seconds > 0:
+                try:
+                    self.q.put(("stats",
+                                _collect_stats(self.cfg, self.port)))
+                except Exception:
+                    # A dead poller used to be invisible: stale stats
+                    # forever, nothing logged (stderr is devnull under
+                    # pythonw). Log and keep polling.
+                    arkmap.log("GUI: stats collection failed:\n"
+                               + traceback.format_exc(limit=3))
+                first = False
+            waited = 0.0
+            while not self.stop.is_set():
+                if self._poll_seconds > 0 and waited >= self._poll_seconds:
+                    break
+                self.stop.wait(0.5)
+                waited += 0.5
 
     def _drain(self) -> None:
         # Every handler is wrapped: one bad payload must never kill
@@ -1446,7 +1549,7 @@ def _collect_stats(cfg: dict, port: int) -> dict:
         for e in arkmap.console_deaths().get("events", []):
             if e.get("kind") == "player":
                 who = e.get("player") or e.get("who") or ""
-                dc.setdefault(who, Counter())[_creature(e.get("by"))] += 1
+                dc.setdefault(who, Counter())[_creature(e)] += 1
         for who, counter in dc.items():
             s = slot(who)
             s["deaths_by"] = counter.most_common(8)
