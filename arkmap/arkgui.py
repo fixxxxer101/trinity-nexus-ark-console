@@ -554,6 +554,13 @@ class ConsoleGui:
                 label.configure(wraplength=max(220, w - padding))
             except Exception:
                 pass
+        # The tab bar and the squad tiles flow by width; both layout
+        # helpers no-op when the arrangement already fits this width.
+        try:
+            self._layout_tabbar()
+            self._layout_agg()
+        except Exception:
+            pass
 
     def _persist_settings(self) -> None:
         try:
@@ -601,11 +608,14 @@ class ConsoleGui:
         agg = tk.Frame(parent, bg=PANEL, highlightbackground=BORDER,
                        highlightthickness=1)
         agg.pack(fill="x", pady=(10, 0))
-        tk.Label(agg, text="SQUAD AVERAGES & TOTALS", bg=PANEL, fg=MUTED,
-                 font=("Segoe UI", 9, "bold")).grid(
-                     row=0, column=0, columnspan=3, sticky="w", padx=14,
-                     pady=(10, 2))
+        self._agg_frame = agg
+        self._agg_header = tk.Label(agg, text="SQUAD AVERAGES & TOTALS",
+                                    bg=PANEL, fg=MUTED,
+                                    font=("Segoe UI", 9, "bold"))
+        self._agg_header.grid(row=0, column=0, columnspan=3, sticky="w",
+                              padx=14, pady=(10, 2))
         self.agg = {}
+        self._agg_tiles = []
         specs = [("avg_level", "Average level"),
                  ("avg_play", "Average playtime"),
                  ("total_play", "Total playtime"),
@@ -615,22 +625,48 @@ class ConsoleGui:
                  ("total_sessions", "Total sessions"),
                  ("avg_session", "Average session"),
                  ("deaths_per_hour", "Deaths per hour")]
-        # Three across, three down: nine-across needed ~1100 px and
-        # clipped the right-hand stats at window size - and the grid
-        # could not shrink them back on smaller windows either.
+        # The tiles are placed by _layout_agg, which fits as many
+        # across as the window is wide and wraps the rest - a fixed
+        # three-across stacked them three rows high with the rest of
+        # the wide panel sitting empty.
         for i, (key, label) in enumerate(specs):
             row, col = 1 + (i // 3) * 2, i % 3
             var = tk.StringVar(value="—")
             self.agg[key] = var
-            tk.Label(agg, textvariable=var, bg=PANEL, fg=TEXT,
-                     font=("Segoe UI", 14, "bold")).grid(
-                         row=row, column=col, sticky="w", padx=14)
-            tk.Label(agg, text=label, bg=PANEL, fg=MUTED,
-                     font=("Segoe UI", 9)).grid(
-                         row=row + 1, column=col, sticky="w", padx=14,
+            value = tk.Label(agg, textvariable=var, bg=PANEL, fg=TEXT,
+                             font=("Segoe UI", 14, "bold"))
+            value.grid(row=row, column=col, sticky="w", padx=14)
+            caption = tk.Label(agg, text=label, bg=PANEL, fg=MUTED,
+                               font=("Segoe UI", 9))
+            caption.grid(row=row + 1, column=col, sticky="w", padx=14,
                          pady=(0, 8))
-        for c in range(3):
-            agg.columnconfigure(c, weight=1)
+            self._agg_tiles.append((value, caption))
+        for c in range(len(specs)):
+            agg.columnconfigure(c, weight=1 if c < 3 else 0)
+        self._agg_cols = None
+        self.root.after(60, self._layout_agg)
+
+    def _layout_agg(self) -> None:
+        # Reflow the squad tiles to the width on hand: ~175 px per
+        # tile, so the wide default window fits six across (two rows
+        # for the nine stats) and only a narrow window drops to three.
+        frame = getattr(self, "_agg_frame", None)
+        if frame is None or not getattr(self, "_agg_tiles", None):
+            return
+        avail = frame.winfo_width()
+        if avail < 100:
+            avail = max(self.root.winfo_width() - 32, 100)
+        cols = max(1, min(len(self._agg_tiles), avail // 175))
+        if cols == self._agg_cols:
+            return
+        self._agg_cols = cols
+        self._agg_header.grid_configure(columnspan=cols)
+        for i, (value, caption) in enumerate(self._agg_tiles):
+            row, col = 1 + (i // cols) * 2, i % cols
+            value.grid_configure(row=row, column=col)
+            caption.grid_configure(row=row + 1, column=col)
+        for c in range(len(self._agg_tiles)):
+            frame.columnconfigure(c, weight=1 if c < cols else 0)
 
         rows = tk.Frame(parent, bg=BG)
         rows.pack(fill="x", pady=(12, 0))
@@ -659,20 +695,12 @@ class ConsoleGui:
             child.destroy()
         self._tab_buttons = {}
         self._tab_names = list(names)
-        keys = ["all"] + list(names) + ["names", "terminal"]
-        if self._tab not in keys:
+        self._tab_keys = ["all"] + list(names) + ["names", "terminal"]
+        if self._tab not in self._tab_keys:
             self._tab = "all"
-        # Flow the buttons onto fresh rows instead of one endless
-        # strip: a single row runs off the right edge of the window
-        # once there are several player tabs, and the tabs past the
-        # edge are simply lost. Four per row fits the min window.
-        row_frame = None
-        for i, key in enumerate(keys):
-            if i % 4 == 0:
-                row_frame = tk.Frame(self.tabbar, bg=BG)
-                row_frame.pack(fill="x", pady=(0, 6) if i else 0)
+        for key in self._tab_keys:
             label = {"all": "All Players", "names": "Names", "terminal": "Terminal"}.get(key, key)
-            b = tk.Button(row_frame, text=label,
+            b = tk.Button(self.tabbar, text=label,
                           command=lambda k=key: self._select_tab(k),
                           bg=TAB_ON if key == self._tab else PANEL,
                           fg=TEXT, activebackground="#1e3a32",
@@ -680,8 +708,39 @@ class ConsoleGui:
                           font=("Segoe UI", 10, "bold"), padx=12, pady=6,
                           cursor="hand2", highlightbackground=BORDER,
                           highlightthickness=1)
-            b.pack(side="left", padx=(0, 6))
             self._tab_buttons[key] = b
+        self._tab_rows = None
+        self._layout_tabbar()
+
+    def _layout_tabbar(self) -> None:
+        # Flow the tab buttons by the width actually available: one
+        # row whenever they fit (the normal case in the wide window),
+        # wrapping onto a second row only when the window is too
+        # narrow. A fixed count per row stacked them even with empty
+        # space stretching to the right.
+        if not getattr(self, "_tab_buttons", None):
+            return
+        avail = self.tabbar.winfo_width()
+        if avail < 100:
+            avail = max(self.root.winfo_width() - 32, 100)
+        rows, row, x = [], [], 0
+        for key in self._tab_keys:
+            w = self._tab_buttons[key].winfo_reqwidth() + 6
+            if row and x + w > avail:
+                rows.append(row)
+                row, x = [], 0
+            row.append(key)
+            x += w
+        if row:
+            rows.append(row)
+        signature = tuple(len(r) for r in rows)
+        if signature == getattr(self, "_tab_rows", None):
+            return
+        self._tab_rows = signature
+        for r, keys in enumerate(rows):
+            for c, key in enumerate(keys):
+                self._tab_buttons[key].grid(row=r, column=c, sticky="w",
+                                            padx=(0, 6), pady=(0, 6))
 
     def _select_tab(self, key: str) -> None:
         self._tab = key

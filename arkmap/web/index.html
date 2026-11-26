@@ -1227,7 +1227,13 @@ function offenderVictimLine(v) {
 function renderOffenders() {
   var box = $("#deathOffenders");
   if (!box) return;
-  if (!OFFENDER_LIST.length) { box.innerHTML = ""; return; }
+  if (!OFFENDER_LIST.length) {
+    box.innerHTML = '<div class="panel" style="margin-bottom:16px"><h3>Repeat Offenders</h3>' +
+      '<div class="muted">No unnamed creatures on record yet. When something kills a player or a tame ' +
+      "and the log keeps its name back, it is tracked here by the ID the game gave it — " +
+      "kill it and you can hang it here as a trophy.</div></div>";
+    return;
+  }
   var today = new Date().toISOString().slice(0, 10);
   var players = [];
   DEATHS.forEach(function (e) { if (e.kind === "player" && players.indexOf(e.who) < 0) players.push(e.who); });
