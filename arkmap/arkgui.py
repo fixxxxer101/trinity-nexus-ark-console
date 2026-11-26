@@ -646,6 +646,26 @@ class ConsoleGui:
         self._agg_cols = None
         self.root.after(60, self._layout_agg)
 
+        rows = tk.Frame(parent, bg=BG)
+        rows.pack(fill="x", pady=(12, 0))
+        self.fields = {}
+        specs = [("server", "Server"), ("day", "Server day"),
+                 ("players", "Players in world"),
+                 ("map", "Map · Version"), ("connect", "Connect"),
+                 ("save", "World save"), ("trackers", "Deaths on record"),
+                 ("tames", "Living tames"),
+                 ("checked", "Last check"), ("uptime", "Console uptime")]
+        for i, (key, label) in enumerate(specs):
+            tk.Label(rows, text=label, bg=BG, fg=MUTED,
+                     font=("Segoe UI", 10)).grid(row=i, column=0,
+                                                  sticky="w", pady=2)
+            var = tk.StringVar(value="—")
+            self.fields[key] = var
+            tk.Label(rows, textvariable=var, bg=BG, fg=TEXT,
+                     font=("Segoe UI", 10, "bold")).grid(
+                         row=i, column=1, sticky="w", padx=12, pady=2)
+        rows.columnconfigure(1, weight=1)
+
     def _layout_agg(self) -> None:
         # Reflow the squad tiles to the width on hand: ~175 px per
         # tile, so the wide default window fits six across (two rows
@@ -667,26 +687,6 @@ class ConsoleGui:
             caption.grid_configure(row=row + 1, column=col)
         for c in range(len(self._agg_tiles)):
             frame.columnconfigure(c, weight=1 if c < cols else 0)
-
-        rows = tk.Frame(parent, bg=BG)
-        rows.pack(fill="x", pady=(12, 0))
-        self.fields = {}
-        specs = [("server", "Server"), ("day", "Server day"),
-                 ("players", "Players in world"),
-                 ("map", "Map · Version"), ("connect", "Connect"),
-                 ("save", "World save"), ("trackers", "Deaths on record"),
-                 ("tames", "Living tames"),
-                 ("checked", "Last check"), ("uptime", "Console uptime")]
-        for i, (key, label) in enumerate(specs):
-            tk.Label(rows, text=label, bg=BG, fg=MUTED,
-                     font=("Segoe UI", 10)).grid(row=i, column=0,
-                                                  sticky="w", pady=2)
-            var = tk.StringVar(value="—")
-            self.fields[key] = var
-            tk.Label(rows, textvariable=var, bg=BG, fg=TEXT,
-                     font=("Segoe UI", 10, "bold")).grid(
-                         row=i, column=1, sticky="w", padx=12, pady=2)
-        rows.columnconfigure(1, weight=1)
 
     # ----------------------------------------------------------- tabs --
     def _rebuild_tabbar(self, names: list) -> None:
