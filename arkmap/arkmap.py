@@ -26,6 +26,7 @@ import os
 import re
 import shutil
 import socket
+import struct
 import sys
 import threading
 import time
@@ -37,7 +38,7 @@ from datetime import datetime, timezone
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
-VERSION = "2.7.3"
+VERSION = "2.8.0"
 
 APP_DIR = Path(__file__).resolve().parent
 CONFIG_DIR = Path.home() / ".arkmap"
@@ -1978,7 +1979,7 @@ def console_levels() -> dict:
         char = obs[0].get("who", "")
         out.append({"name": _resolve_name(char, names), "character": char,
                     "current": best, "history": history, "series": series,
-                    "sightings": len(obs)})
+                    "sightings": len(obs), "show_tab": _key_shown(char)})
     out.sort(key=lambda p: -p["current"])
     return {"ok": True, "players": out}
 
@@ -2305,6 +2306,7 @@ def console_presence() -> dict:
         q = dict(p)
         q["character"] = p["name"]
         q["name"] = _resolve_name(p["name"], names)
+        q["show_tab"] = _key_shown(p["name"])
         out_players.append(q)
     out_activity = []
     for e in list(reversed(activity))[:200]:
@@ -2315,6 +2317,556 @@ def console_presence() -> dict:
             "players": sorted(out_players,
                               key=lambda p: (not p["online"], -(p["last_on"] or 0))),
             "activity": out_activity}
+
+
+# -------------------------------------------------------------- names ----
+PLAYER_SHOW_PATH = SAVE_DIR / "player_show.json"
+
+
+def _write_json_retry(path: Path, obj) -> None:
+    """Write JSON via tmp + replace, retrying through the brief
+    file locks a sync client puts on brand-new files (the Third Eye
+    I-001 lesson); falls back to writing in place rather than
+    losing the save."""
+    text = json.dumps(obj, indent=1)
+    tmp = path.with_suffix(".tmp")
+    last = None
+    for delay in (0.0, 0.15, 0.4, 1.0):
+        try:
+            if delay:
+                time.sleep(delay)
+            tmp.write_text(text, encoding="utf-8")
+            os.replace(tmp, path)
+            return
+        except Exception as exc:
+            last = exc
+    path.write_text(text, encoding="utf-8")
+
+
+def _player_show() -> dict:
+    """Raw identity key -> 'gets its own player tab' flag, from
+    save/player_show.json. Absent key = default (see _key_shown)."""
+    try:
+        raw = json.loads(PLAYER_SHOW_PATH.read_text(encoding="utf-8"))
+        if isinstance(raw, dict):
+            return {str(k): bool(v) for k, v in raw.items()}
+    except Exception:
+        pass
+    return {}
+
+
+def _identities() -> dict:
+    """Every username the trackers have ever detected, keyed by
+    lower-cased raw name: {key (original casing), kinds}. Presence
+    lines carry Xbox gamertags; death and level lines carry
+    character names; the nickname file may add aliases of its own."""
+    found: dict = {}
+
+    def note(key, kind):
+        key = (key or "").strip()
+        if not key:
+            return
+        slot = found.setdefault(key.lower(), {"key": key, "kinds": set()})
+        slot["kinds"].add(kind)
+
+    try:
+        for e in _load_presence()["events"]:
+            note(e.get("who"), "gamertag")
+    except Exception:
+        pass
+    try:
+        for e in _load_deaths()["events"]:
+            if e.get("kind") == "player":
+                note(e.get("who"), "character")
+    except Exception:
+        pass
+    try:
+        for o in _load_levels()["observations"]:
+            note(o.get("who"), "character")
+    except Exception:
+        pass
+    for k in _player_names():
+        note(k, "alias")
+    return found
+
+
+def console_names() -> dict:
+    """The Names tab data: detected identities grouped by person
+    (identities that resolve to the same nickname form one group),
+    each group with its current nickname and its 'own tab' flag.
+    Default flag: a group with a nickname shows; an unnamed stray
+    stays tab-less until someone ticks it."""
+    names = _player_names()
+    flags = _player_show()
+    groups: dict = {}
+    for low, slot in sorted(_identities().items()):
+        display = _resolve_name(slot["key"], names)
+        g = groups.setdefault(display.lower(),
+                              {"display": display, "nickname": "", "keys": []})
+        g["keys"].append({"key": slot["key"], "kinds": sorted(slot["kinds"])})
+        nick = ""
+        for k, v in names.items():
+            if k.lower() == low:
+                nick = v
+                break
+        if nick:
+            g["nickname"] = nick
+    out = []
+    for g in groups.values():
+        show = None
+        for kk in g["keys"]:
+            for fk, fv in flags.items():
+                if fk.lower() == kk["key"].lower():
+                    show = bool(fv)
+                    break
+            if show is not None:
+                break
+        if show is None:
+            show = bool(g["nickname"])
+        g["show"] = show
+        out.append(g)
+    out.sort(key=lambda g: (not g["show"], g["display"].lower()))
+    return {"ok": True, "groups": out}
+
+
+def save_name_group(keys: list, nickname: str, show: bool) -> dict:
+    """Set one group's nickname (blank clears it) and tab flag for
+    every raw key in the group. Nicknames live in the same
+    player_names.json the console has always used; flags in
+    player_show.json. Returns the fresh console_names()."""
+    keys = [str(k) for k in (keys or []) if str(k).strip()]
+    if not keys:
+        raise ApiError("No identity keys given.")
+    nickname = (nickname or "").strip()
+    names = _player_names()
+    for k in keys:
+        hit = next((ek for ek in names if ek.lower() == k.lower()), None)
+        if nickname:
+            names[hit or k] = nickname
+        elif hit:
+            names.pop(hit, None)
+    _write_json_retry(PLAYER_NAMES_PATH, names)
+    flags = _player_show()
+    for k in keys:
+        hit = next((ek for ek in flags if ek.lower() == k.lower()), None)
+        flags[hit or k] = bool(show)
+    _write_json_retry(PLAYER_SHOW_PATH, flags)
+    return console_names()
+
+
+def _key_shown(key: str) -> bool:
+    """Whether the person behind one raw identity key gets their
+    own player tab: explicit flag if one was saved, else the
+    default - nicknamed players show, unnamed strays don't."""
+    flags = _player_show()
+    low = (key or "").lower()
+    for k, v in flags.items():
+        if k.lower() == low:
+            return bool(v)
+    return _resolve_name(key or "", _player_names()) != (key or "")
+
+
+def shown_display_names() -> set:
+    """Display names whose group gets its own player tab (the GUI
+    filters its per-player tabs by this set)."""
+    return {g["display"] for g in console_names()["groups"] if g["show"]}
+
+
+# --------------------------------------------------------------- rcon ----
+CREATURES_PATH = APP_DIR / "creatures.json"
+ITEMS_PATH = APP_DIR / "items.json"
+_RCON_DATA_CACHE: dict = {}
+
+RCON_DEFAULT_PORT = 15347
+# The RCON password lives ONLY here, in this process's memory,
+# from the moment the webpage's password prompt unlocks until the
+# app restarts or Lock is pressed. It is never written to disk,
+# never put in the config, and never logged.
+_RCON_STATE: dict = {"password": None}
+
+
+class RconError(Exception):
+    """An RCON problem the webpage should show as-is."""
+
+
+def rcon_data() -> dict:
+    """The creature and item tables the RCON menu's pickers use,
+    from the data files beside this module (built from the ARK
+    wiki's Creature IDs / Item IDs research, 2026-11-25)."""
+    out = {"ok": True, "creatures": [], "items": []}
+    for key, path in (("creatures", CREATURES_PATH), ("items", ITEMS_PATH)):
+        try:
+            sig = path.stat().st_mtime
+            if _RCON_DATA_CACHE.get(key, (None,))[0] != sig:
+                raw = json.loads(path.read_text(encoding="utf-8"))
+                _RCON_DATA_CACHE[key] = (sig, raw.get(key) or [])
+            out[key] = _RCON_DATA_CACHE[key][1]
+        except Exception:
+            out[key] = []
+    return out
+
+
+def _rcon_host(cfg: dict) -> str:
+    if cfg.get("rcon_host"):
+        return str(cfg["rcon_host"]).strip()
+    gs = _cached("gameserver", 20, lambda: _gs(cfg))
+    q = gs.get("query") or {}
+    ci = str(q.get("connect_ip") or "").strip()
+    host = ci.rsplit(":", 1)[0].strip() if ":" in ci else ci
+    if host:
+        return host
+    raise RconError("The server's address isn't known yet - try again "
+                    "once the Overview has loaded.")
+
+
+def _rcon_port(cfg: dict) -> int:
+    try:
+        return int(cfg.get("rcon_port") or RCON_DEFAULT_PORT)
+    except Exception:
+        return RCON_DEFAULT_PORT
+
+
+def _rcon_roundtrip(host: str, port: int, password: str,
+                    command: str, timeout: float = 12.0) -> str:
+    """One Source RCON session: authenticate, send ONE command,
+    collect its response. ARK answers many successful commands
+    with an empty response - that is success, not failure - and
+    often never answers the end-marker packet, so collection ends
+    on the marker OR on a short read timeout after data arrived."""
+    try:
+        sock = socket.create_connection((host, port), timeout=timeout)
+    except Exception as exc:
+        raise RconError(
+            f"Could not connect to RCON at {host}:{port} ({exc}). "
+            "If the port is unreachable, the host may not expose "
+            "RCON on this server product.")
+    try:
+        sock.settimeout(timeout)
+        buf = b""
+
+        def send(rid: int, ptype: int, payload: bytes) -> None:
+            body = struct.pack("<ii", rid, ptype) + payload + b"\x00\x00"
+            sock.sendall(struct.pack("<i", len(body)) + body)
+
+        def read_packet():
+            nonlocal buf
+            while len(buf) < 4:
+                chunk = sock.recv(65536)
+                if not chunk:
+                    raise RconError("The server closed the RCON connection.")
+                buf += chunk
+            (length,) = struct.unpack("<i", buf[:4])
+            if length < 10 or length > 1024 * 1024:
+                raise RconError("The server sent a malformed RCON packet.")
+            while len(buf) < 4 + length:
+                chunk = sock.recv(65536)
+                if not chunk:
+                    raise RconError("The server closed the RCON connection.")
+                buf += chunk
+            body = buf[4:4 + length]
+            buf = buf[4 + length:]
+            rid, ptype = struct.unpack("<ii", body[:8])
+            return rid, ptype, body[8:-2]
+
+        send(1, 3, password.encode("utf-8"))
+        authed = False
+        deadline = time.time() + timeout
+        while time.time() < deadline:
+            rid, ptype, _payload = read_packet()
+            if rid == -1:
+                raise RconError("The server rejected that RCON password.")
+            if ptype == 2 and rid == 1:
+                authed = True
+                break
+        if not authed:
+            raise RconError("The server never answered the RCON login.")
+        send(2, 2, command.encode("utf-8"))
+        send(3, 0, b"")
+        out: list = []
+        sock.settimeout(2.5)
+        try:
+            while True:
+                rid, _ptype, payload = read_packet()
+                if rid == 3:
+                    break
+                if rid == 2:
+                    out.append(payload.decode("utf-8", "replace"))
+        except (socket.timeout, TimeoutError):
+            pass
+        return "".join(out)
+    except RconError:
+        raise
+    except Exception as exc:
+        raise RconError(f"RCON failed: {type(exc).__name__}: {exc}")
+    finally:
+        try:
+            sock.close()
+        except Exception:
+            pass
+
+
+def rcon_exec(cfg: dict, command: str) -> str:
+    pw = _RCON_STATE.get("password")
+    if not pw:
+        raise RconError("RCON is locked - enter the RCON password first.")
+    return _rcon_roundtrip(_rcon_host(cfg), _rcon_port(cfg), pw, command)
+
+
+def parse_list_players(text: str) -> list:
+    """Parse ListPlayers output defensively: the wiki documents no
+    exact layout, so accept 'N. Name, ID', 'Name, ID' and
+    'Name ID' lines and keep the raw line for display."""
+    rows = []
+    for line in (text or "").splitlines():
+        raw = line.strip()
+        if not raw:
+            continue
+        line = re.sub(r"^\d+[\.\)]\s*", "", raw)
+        name, ident = line, ""
+        if "," in line:
+            name, ident = (p.strip() for p in line.rsplit(",", 1))
+        else:
+            parts = line.rsplit(None, 1)
+            if len(parts) == 2 and re.search(r"\d", parts[1]):
+                name, ident = parts[0].strip(), parts[1].strip()
+        rows.append({"name": name, "id": ident, "raw": raw})
+    return rows
+
+
+def rcon_status(cfg: dict) -> dict:
+    host = None
+    try:
+        host = _rcon_host(cfg)
+    except Exception:
+        host = None
+    return {"ok": True, "unlocked": bool(_RCON_STATE.get("password")),
+            "host": host, "port": _rcon_port(cfg)}
+
+
+def rcon_unlock(cfg: dict, password: str) -> dict:
+    """Test the password with a real ListPlayers and, only on
+    success, keep it - in memory, for this process only."""
+    password = password or ""
+    if not password:
+        raise RconError("Enter the RCON password.")
+    out = _rcon_roundtrip(_rcon_host(cfg), _rcon_port(cfg),
+                          password, "ListPlayers")
+    _RCON_STATE["password"] = password
+    return {"ok": True, "players": parse_list_players(out), "raw": out}
+
+
+def rcon_lock() -> dict:
+    _RCON_STATE["password"] = None
+    return {"ok": True}
+
+
+# --- RCON action catalogue -------------------------------------------
+# Only commands the wiki documents as working in the remote console
+# (no Self / crosshair targets: there is no player character behind
+# an RCON session, so spawning, teleporting, taming and the like
+# are impossible here by design - see the 2026-11-25 research).
+
+def _p_str(p: dict, key: str, maxlen: int = 300, required: bool = True) -> str:
+    v = str(p.get(key) or "").strip()
+    if required and not v:
+        raise RconError(f"Missing value: {key}.")
+    if len(v) > maxlen or re.search(r"[\r\n]", v):
+        raise RconError(f"Invalid value: {key}.")
+    return v
+
+
+def _p_id(p: dict, key: str = "account_id") -> str:
+    v = _p_str(p, key, maxlen=80)
+    if '"' in v:
+        raise RconError("Invalid player identifier.")
+    return v
+
+
+def _p_pid(p: dict, key: str = "player_id") -> str:
+    v = _p_str(p, key, maxlen=12)
+    if not re.fullmatch(r"\d{1,12}", v):
+        raise RconError("That action needs the player's numeric "
+                        "PlayerID (the in-game UE4 ID).")
+    return v
+
+
+def _p_int(p: dict, key: str, lo: int, hi: int) -> int:
+    try:
+        v = int(p.get(key))
+    except Exception:
+        raise RconError(f"Invalid number: {key}.")
+    if v < lo or v > hi:
+        raise RconError(f"Out of range: {key} (allowed {lo}..{hi}).")
+    return v
+
+
+def _p_float(p: dict, key: str, lo: float, hi: float) -> float:
+    try:
+        v = float(p.get(key))
+    except Exception:
+        raise RconError(f"Invalid number: {key}.")
+    if v < lo or v > hi:
+        raise RconError(f"Out of range: {key} (allowed {lo}..{hi}).")
+    return v
+
+
+def _fmt_num(v: float) -> str:
+    s = f"{v:.4f}".rstrip("0").rstrip(".")
+    return s if s and s != "-0" else "0"
+
+
+def _p_bool(p: dict, key: str) -> str:
+    return "1" if p.get(key) else "0"
+
+
+def rcon_action(cfg: dict, p: dict) -> dict:
+    """Build ONE server command from a fixed menu action and run
+    it. The webpage sends an action name plus fields; the command
+    string is assembled here, from validated pieces, and returned
+    so the page can show exactly what was sent."""
+    action = str(p.get("action") or "")
+    commands: list = []
+
+    if action == "save_world":
+        commands = ["SaveWorld"]
+    elif action == "broadcast":
+        commands = [f"Broadcast {_p_str(p, 'message', 400)}"]
+    elif action == "server_chat":
+        commands = [f"ServerChat {_p_str(p, 'message', 400)}"]
+    elif action == "motd":
+        commands = [f"SetMessageOfTheDay {_p_str(p, 'message', 400)}"]
+    elif action == "set_time":
+        v = _p_str(p, "time", 8)
+        m = re.fullmatch(r"(\d{1,2}):(\d{2})(?::(\d{2}))?", v)
+        if not m or int(m.group(1)) > 23 or int(m.group(2)) > 59 \
+                or int(m.group(3) or 0) > 59:
+            raise RconError("Time must be HH:MM or HH:MM:SS (24-hour).")
+        commands = [f"SetTimeOfDay {int(m.group(1)):02d}:{m.group(2)}:"
+                    f"{m.group(3) or '00'}"]
+    elif action == "set_day":
+        commands = [f"SetDay {_p_int(p, 'day', 0, 2147483647)}"]
+    elif action == "slomo":
+        commands = [f"Slomo {_fmt_num(_p_float(p, 'factor', 0, 16))}"]
+    elif action == "players_only":
+        commands = ["PlayersOnly"]
+    elif action == "get_chat":
+        commands = ["GetChat"]
+    elif action == "list_players":
+        commands = ["ListPlayers"]
+    elif action == "destroy_wild_dinos":
+        commands = ["DestroyWildDinos"]
+    elif action == "destroy_all_enemies":
+        commands = ["DestroyAllEnemies"]
+    elif action == "destroy_structures":
+        commands = ["DestroyStructures"]
+    elif action == "restart_level":
+        commands = ["DoRestartLevel"]
+    elif action == "shutdown":
+        commands = ["SaveWorld", "DoExit"]
+    elif action == "weather_rainbow":
+        commands = ["CE SpawnRainbow"]
+    elif action == "weather_aurora":
+        commands = ["CE TestNorthernLights"]
+    # ---- player, account-ID family (identifier ListPlayers prints)
+    elif action == "kick":
+        commands = [f"KickPlayer {_p_id(p)}"]
+    elif action == "ban":
+        commands = [f"BanPlayer {_p_id(p)}"]
+    elif action == "unban":
+        commands = [f"UnbanPlayer {_p_id(p)}"]
+    elif action == "chat_to_id":
+        commands = [f'ServerChatTo "{_p_id(p)}" {_p_str(p, "message", 400)}']
+    elif action == "chat_to_name":
+        commands = [f"ServerChatToPlayer {_p_str(p, 'name', 80)} "
+                    f"{_p_str(p, 'message', 400)}"]
+    elif action == "rename_player":
+        cur = _p_str(p, "name", 80)
+        if '"' in cur:
+            raise RconError("Invalid current name.")
+        commands = [f'RenamePlayer "{cur}" {_p_str(p, "new_name", 80)}']
+    # ---- player, PlayerID family (in-game UE4 ID)
+    elif action == "give_item":
+        pid = _p_pid(p)
+        qty = _p_int(p, "quantity", 1, 10000)
+        quality = _fmt_num(_p_float(p, "quality", 0, 100))
+        force = _p_bool(p, "as_blueprint")
+        mode = str(p.get("mode") or "")
+        if mode == "path":
+            path = _p_str(p, "item_path", 300)
+            if not (path.startswith("Blueprint'") and path.endswith("'")):
+                raise RconError("Invalid blueprint path.")
+            commands = [f"GiveItemToPlayer {pid} {path} {qty} {quality} {force}"]
+        elif mode == "num":
+            num = _p_int(p, "item_id", 1, 100000)
+            commands = [f"GiveItemNumToPlayer {pid} {num} {qty} {quality} {force}"]
+        else:
+            raise RconError("Pick an item the menu can give (it needs a "
+                            "verified blueprint path or item number).")
+    elif action == "give_xp":
+        pid = _p_pid(p)
+        amt = _fmt_num(_p_float(p, "amount", 0, 100000000))
+        prevent = "0" if p.get("share_tribe", True) else "1"
+        commands = [f"GiveExpToPlayer {pid} {amt} 0 {prevent}"]
+    elif action == "chibi_xp":
+        commands = [f"AddChibiExpToPlayer {_p_pid(p)} "
+                    f"{_fmt_num(_p_float(p, 'amount', 0, 100000000))}"]
+    elif action == "kill_player":
+        commands = [f"KillPlayer {_p_pid(p)}"]
+    elif action == "clear_inventory":
+        pid = _p_pid(p)
+        commands = [f"ClearPlayerInventory {pid} {_p_bool(p, 'inv')} "
+                    f"{_p_bool(p, 'slots')} {_p_bool(p, 'equipped')}"]
+    elif action == "creative_mode":
+        commands = [f"GiveCreativeModeToPlayer {_p_pid(p)}"]
+    elif action == "tekengrams":
+        part = _p_str(p, "partial", 60, required=False) or "tek"
+        commands = [f"GiveTekengramsTo {_p_pid(p)} {part}"]
+    elif action == "max_ascend":
+        commands = [f"MaxAscend {_p_pid(p)}"]
+    elif action == "defeat_all_bosses":
+        commands = [f"DefeatAllBosses {_p_pid(p)}"]
+    elif action == "rename_player_id":
+        commands = [f"RenamePlayerId {_p_pid(p)} {_p_str(p, 'new_name', 80)}"]
+    # ---- tribe (TribeID; this server's tribe defaults client-side)
+    elif action == "tribe_message":
+        commands = [f"TribeMessage {_p_pid(p, 'tribe_id')} "
+                    f"{_p_str(p, 'message', 400)}"]
+    elif action == "tribe_players":
+        commands = [f"GetTribeIdPlayerList {_p_pid(p, 'tribe_id')}"]
+    elif action == "tribe_audit_structures":
+        commands = [f"TribeStructureAudit {_p_pid(p, 'tribe_id')}"]
+    elif action == "tribe_audit_dinos":
+        commands = [f"TribeDinoAudit {_p_pid(p, 'tribe_id')}"]
+    elif action == "rename_tribe_id":
+        commands = [f"RenameTribeID {_p_pid(p, 'tribe_id')} "
+                    f"{_p_str(p, 'new_name', 80)}"]
+    elif action == "destroy_tribe_dinos":
+        commands = [f"DestroyTribeIdDinos {_p_pid(p, 'tribe_id')}"]
+    elif action == "destroy_tribe_structures":
+        commands = [f"DestroyTribeIdStructures {_p_pid(p, 'tribe_id')}"]
+    elif action == "destroy_tribe_players":
+        commands = [f"DestroyTribeIdPlayers {_p_pid(p, 'tribe_id')}"]
+    elif action == "destroy_tribe":
+        commands = [f"DestroyTribeId {_p_pid(p, 'tribe_id')}"]
+    # ---- world, by creature class
+    elif action == "destroy_all_class":
+        cls = _p_str(p, "class", 120)
+        if not re.fullmatch(r"[A-Za-z0-9_]+", cls):
+            raise RconError("Invalid creature class.")
+        commands = [f"DestroyAll {cls} 1"]
+    elif action == "destroy_wild_class":
+        cls = _p_str(p, "class", 120)
+        if not re.fullmatch(r"[A-Za-z0-9_]+", cls):
+            raise RconError("Invalid creature class.")
+        commands = [f'DestroyWildDinoClasses "{cls}" 1']
+    else:
+        raise RconError(f"Unknown RCON action: {action or '(none)'}")
+
+    outputs = []
+    for cmd in commands:
+        outputs.append(rcon_exec(cfg, cmd))
+    return {"ok": True, "commands": commands,
+            "output": "\n".join(o for o in outputs if o)}
 
 
 class Handler(SimpleHTTPRequestHandler):
@@ -2385,6 +2937,20 @@ class Handler(SimpleHTTPRequestHandler):
                 self._send_json(console_levels())
             elif parts.path == "/api/tames":
                 self._send_json(console_tames())
+            elif parts.path == "/api/names":
+                self._send_json(console_names())
+            elif parts.path == "/api/rcon/status":
+                self._send_json(rcon_status(cfg))
+            elif parts.path == "/api/rcon/data":
+                self._send_json(rcon_data())
+            elif parts.path == "/api/rcon/players":
+                try:
+                    raw = rcon_exec(cfg, "ListPlayers")
+                    self._send_json({"ok": True,
+                                     "players": parse_list_players(raw),
+                                     "raw": raw})
+                except RconError as exc:
+                    self._send_json({"ok": False, "error": str(exc)}, 400)
             elif parts.path == "/api/download":
                 remote = (qs.get("file") or [""])[0]
                 if not remote:
@@ -2404,7 +2970,8 @@ class Handler(SimpleHTTPRequestHandler):
             self._api_error(exc)
 
     def do_POST(self):
-        if not self.path.startswith("/api/control"):
+        parts = urllib.parse.urlsplit(self.path)
+        if not parts.path.startswith("/api/"):
             return self._send_json({"ok": False, "error": "Unknown API route."}, 404)
         cfg = _CFG_HOLDER.get("cfg")
         if cfg is None:
@@ -2412,7 +2979,22 @@ class Handler(SimpleHTTPRequestHandler):
         try:
             length = int(self.headers.get("Content-Length") or 0)
             payload = json.loads(self.rfile.read(length).decode("utf-8") or "{}")
-            self._send_json(console_control(cfg, str(payload.get("action") or "")))
+            if parts.path == "/api/control":
+                self._send_json(console_control(cfg, str(payload.get("action") or "")))
+            elif parts.path == "/api/rcon/unlock":
+                self._send_json(rcon_unlock(cfg, str(payload.get("password") or "")))
+            elif parts.path == "/api/rcon/lock":
+                self._send_json(rcon_lock())
+            elif parts.path == "/api/rcon/exec":
+                self._send_json(rcon_action(cfg, payload))
+            elif parts.path == "/api/names":
+                self._send_json(save_name_group(payload.get("keys") or [],
+                                                str(payload.get("nickname") or ""),
+                                                bool(payload.get("show"))))
+            else:
+                self._send_json({"ok": False, "error": "Unknown API route."}, 404)
+        except RconError as exc:
+            self._send_json({"ok": False, "error": str(exc)}, 400)
         except Exception as exc:
             self._api_error(exc)
 

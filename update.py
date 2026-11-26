@@ -43,6 +43,8 @@ FILES = [
     "arkmap/arkmap.py",
     "arkmap/arkgui.py",
     "arkmap/creature_names.json",
+    "arkmap/creatures.json",
+    "arkmap/items.json",
     "arkmap/emblem.png",
     "arkmap/web/index.html",
     "arkmap/web/map.html",

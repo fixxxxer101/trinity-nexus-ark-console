@@ -182,11 +182,13 @@
   <button class="navbtn active" data-view="overview">Overview</button>
   <button class="navbtn" data-view="map">Live Map</button>
   <button class="navbtn" data-view="players">Players</button>
+  <button class="navbtn" data-view="names">Names</button>
   <button class="navbtn" data-view="deaths">Deaths</button>
   <button class="navbtn" data-view="tames">Tames</button>
   <button class="navbtn" data-view="files">Files</button>
   <button class="navbtn" data-view="logs">Server Logs</button>
   <button class="navbtn" data-view="backups">Backups</button>
+  <button class="navbtn" data-view="rcon">RCON</button>
   <button class="navbtn" data-view="settings">Settings</button>
   <div class="foot">
     Everything Nitrado's API exposes for this server — in one place.<br>
@@ -394,6 +396,213 @@
     <div class="note" style="margin-bottom:16px">Everything Nitrado reports about this server's configuration, exactly as the API returns it. This build is <b>read-only</b> — editing unlocks in the next build, once we've seen the exact shape Nitrado expects back. No blind writes to a live server.</div>
     <div id="settingsWrap"><div class="panel"><span class="muted">Loading settings…</span></div></div>
   </section>
+  <!-- ================= NAMES ================= -->
+  <section class="view" id="view-names">
+    <div class="panel hero" style="margin-bottom:16px">
+      <div class="hn" style="font-size:26px">Names</div>
+      <div class="hs">Every username the console has detected in the server logs — give an account a nickname, and choose who gets their own player tab</div>
+    </div>
+    <div id="namesWrap"><div class="panel"><span class="muted">Reading the detected names…</span></div></div>
+    <div class="note" style="margin-top:16px">Nicknames apply everywhere a name is shown. <b>Everyone stays tracked</b> and <b>All Players always includes everyone</b> — the checkbox only controls who gets a dedicated player tab. An account's gamertag and character name are grouped together when they share a nickname.</div>
+  </section>
+
+  <!-- ================= RCON ================= -->
+  <section class="view" id="view-rcon">
+    <div class="panel hero" style="margin-bottom:16px">
+      <div class="hn" style="font-size:26px">RCON</div>
+      <div class="hs">Server admin commands, as buttons — no console incantations to memorize</div>
+    </div>
+
+    <div class="panel" id="rconLocked">
+      <h3>Locked</h3>
+      <p class="muted" style="line-height:1.55">Enter this server's RCON password (the server admin password) to unlock the command menu. The password is kept only in the console app's memory while it runs — it is never saved to disk, and Lock or closing the app forgets it.</p>
+      <div style="display:flex;flex-wrap:wrap;gap:10px;align-items:center">
+        <input class="ctl" id="rconPw" type="password" placeholder="RCON password" style="flex:1;min-width:220px" autocomplete="off">
+        <button class="btn" id="rconUnlock">Unlock</button>
+      </div>
+      <div class="muted" id="rconTarget" style="margin-top:10px"></div>
+      <div id="rconLockErr" style="margin-top:8px;color:#f26d6d"></div>
+    </div>
+
+    <div id="rconMenu" style="display:none">
+      <div class="panel" style="margin-bottom:16px">
+        <div style="display:flex;flex-wrap:wrap;gap:10px;align-items:center">
+          <span class="badge incr">unlocked</span>
+          <span class="muted" id="rconWhere"></span>
+          <span style="flex:1"></span>
+          <button class="btn small" id="rconRefreshPlayers">Refresh player list</button>
+          <button class="btn small" id="rconLock">Lock</button>
+        </div>
+        <div style="display:flex;flex-wrap:wrap;gap:10px;align-items:center;margin-top:12px">
+          <label class="muted" for="rcPlayer">Player</label>
+          <select class="ctl" id="rcPlayer" style="flex:1;min-width:200px"></select>
+          <label class="muted" for="rcPlayerId">PlayerID</label>
+          <input class="ctl" id="rcPlayerId" type="text" inputmode="numeric" placeholder="UE4 PlayerID" style="width:150px">
+        </div>
+        <p class="muted" style="margin-bottom:0;line-height:1.55">Kick, ban and chat use the identifier the player list shows. Give, XP, kill and the unlock buttons need the player's numeric <b>PlayerID</b> — the tribe player list below can look them up, or type one in. Pick <b>All players</b> to run a player action on everyone online.</p>
+      </div>
+
+      <div class="panel" style="margin-bottom:16px">
+        <h3>Server</h3>
+        <div style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:12px">
+          <span class="rcact"><button class="btn small" data-rc="save_world">Save World</button></span>
+          <span class="rcact"><button class="btn small" data-rc="players_only">Players Only (toggle)</button></span>
+          <span class="rcact"><button class="btn small" data-rc="get_chat">Read Chat Buffer</button></span>
+          <span class="rcact"><button class="btn small" data-rc="list_players">List Players</button></span>
+        </div>
+        <div class="rcact" style="display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-bottom:10px">
+          <input class="ctl" data-f="message" type="text" placeholder="Message to everyone on screen…" style="flex:1;min-width:220px">
+          <button class="btn small" data-rc="broadcast">Broadcast</button>
+          <button class="btn small" data-rc="server_chat">Send as Chat</button>
+          <button class="btn small" data-rc="motd">Set Join Message (MOTD)</button>
+        </div>
+        <div style="display:flex;flex-wrap:wrap;gap:16px">
+          <span class="rcact" style="display:flex;gap:8px;align-items:center">
+            <label class="muted">Time of day</label>
+            <input class="ctl" data-f="time" type="text" value="12:00" style="width:90px">
+            <button class="btn small" data-rc="set_time">Set</button>
+          </span>
+          <span class="rcact" style="display:flex;gap:8px;align-items:center">
+            <label class="muted">Day</label>
+            <input class="ctl" data-f="day" type="number" min="0" style="width:90px" placeholder="Day #">
+            <button class="btn small" data-rc="set_day">Set</button>
+          </span>
+          <span class="rcact" style="display:flex;gap:8px;align-items:center">
+            <label class="muted">Game speed</label>
+            <select class="ctl" data-f="factor">
+              <option value="0">0 — frozen</option>
+              <option value="0.5">0.5×</option>
+              <option value="1" selected>1× — normal</option>
+              <option value="2">2×</option>
+              <option value="4">4×</option>
+            </select>
+            <button class="btn small" data-rc="slomo">Set</button>
+          </span>
+        </div>
+      </div>
+
+      <div class="panel" style="margin-bottom:16px">
+        <h3>Player — Account Actions</h3>
+        <div style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:12px">
+          <span class="rcact"><button class="btn small" data-rc="kick">Kick</button></span>
+          <span class="rcact"><button class="btn small danger" data-rc="ban" data-confirm="Ban this player?|They are added to the server's ban list and disconnected. Unban from here any time.">Ban</button></span>
+          <span class="rcact"><button class="btn small" data-rc="unban">Unban</button></span>
+        </div>
+        <div class="rcact" style="display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-bottom:10px">
+          <input class="ctl" data-f="message" type="text" placeholder="Private chat message to the selected player…" style="flex:1;min-width:220px">
+          <button class="btn small" data-rc="chat_to_name">Send Chat</button>
+        </div>
+        <div class="rcact" style="display:flex;flex-wrap:wrap;gap:8px;align-items:center">
+          <input class="ctl" data-f="new_name" type="text" placeholder="New character name…" style="flex:1;min-width:220px">
+          <button class="btn small" data-rc="rename_player">Rename Player</button>
+        </div>
+      </div>
+
+      <div class="panel" style="margin-bottom:16px">
+        <h3>Player — Give, XP &amp; Unlocks <span class="muted" style="font-size:13px">(need the PlayerID above)</span></h3>
+        <div style="display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-bottom:8px">
+          <input class="ctl" id="rcItemSearch" type="search" placeholder="Search items — metal, rifle, kibble…" style="flex:1;min-width:220px">
+        </div>
+        <div class="rcact">
+          <div style="display:flex;flex-wrap:wrap;gap:8px;align-items:center">
+            <select class="ctl" id="rcItem" size="6" style="flex:1;min-width:260px"></select>
+          </div>
+          <div class="muted" id="rcItemWarn" style="margin-top:6px"></div>
+          <div style="display:flex;flex-wrap:wrap;gap:10px;align-items:center;margin-top:8px">
+            <label class="muted">Qty <input class="ctl" data-f="quantity" type="number" value="1" min="1" style="width:80px"></label>
+            <label class="muted">Quality <input class="ctl" data-f="quality" type="number" value="0" min="0" step="0.5" style="width:80px"></label>
+            <label class="muted"><input type="checkbox" data-f="as_blueprint"> Give the blueprint</label>
+            <button class="btn small" data-rc="give_item">Give Item</button>
+          </div>
+        </div>
+        <div style="display:flex;flex-wrap:wrap;gap:16px;margin-top:14px">
+          <span class="rcact" style="display:flex;gap:8px;align-items:center">
+            <label class="muted">XP <input class="ctl" data-f="amount" type="number" value="1000" min="0" style="width:100px"></label>
+            <label class="muted"><input type="checkbox" data-f="share_tribe" checked> Share with tribe</label>
+            <button class="btn small" data-rc="give_xp">Give XP</button>
+          </span>
+          <span class="rcact" style="display:flex;gap:8px;align-items:center">
+            <label class="muted">Chibi XP <input class="ctl" data-f="amount" type="number" value="1000" min="0" style="width:100px"></label>
+            <button class="btn small" data-rc="chibi_xp">Give</button>
+          </span>
+        </div>
+        <div style="display:flex;flex-wrap:wrap;gap:8px;margin-top:14px">
+          <span class="rcact"><button class="btn small" data-rc="creative_mode">Creative Mode</button></span>
+          <span class="rcact"><button class="btn small" data-rc="tekengrams">Unlock Tek Engrams</button></span>
+          <span class="rcact"><button class="btn small" data-rc="max_ascend" data-confirm="Max-ascend this player?|Unlocks the Alpha Overseer and Alpha Rockwell ascensions for them, with the extra levels and Tekgrams. This changes their progression permanently.">Max Ascend</button></span>
+          <span class="rcact"><button class="btn small" data-rc="defeat_all_bosses" data-confirm="Mark all bosses defeated?|Every boss is unlocked for this player at Alpha, with the Tekgrams and extra levels that come with it. This changes their progression permanently.">Defeat All Bosses</button></span>
+          <span class="rcact"><button class="btn small danger" data-rc="kill_player" data-confirm="Kill this player?|Their character dies in game (they can respawn, and their body and gear stay where they fell).">Kill Player</button></span>
+        </div>
+        <div class="rcact" style="display:flex;flex-wrap:wrap;gap:10px;align-items:center;margin-top:12px">
+          <span class="muted">Clear inventory:</span>
+          <label class="muted"><input type="checkbox" data-f="inv" checked> Items</label>
+          <label class="muted"><input type="checkbox" data-f="slots" checked> Hotbar</label>
+          <label class="muted"><input type="checkbox" data-f="equipped" checked> Equipped / armor</label>
+          <button class="btn small danger" data-rc="clear_inventory" data-confirm="Clear this player's inventory?|The ticked parts of their inventory are DELETED — this cannot be undone.">Clear</button>
+        </div>
+      </div>
+
+      <div class="panel" style="margin-bottom:16px">
+        <h3>Tribe</h3>
+        <div style="display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-bottom:12px">
+          <label class="muted">Tribe ID <input class="ctl" id="rcTribeId" type="text" inputmode="numeric" value="1082777294" style="width:140px"></label>
+          <span class="muted">— this server's tribe (Mitchell). Change it to act on another tribe.</span>
+        </div>
+        <div style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:12px">
+          <span class="rcact"><button class="btn small" data-rc="tribe_players">Tribe Player List (looks up PlayerIDs)</button></span>
+          <span class="rcact"><button class="btn small" data-rc="tribe_audit_structures">Structure Audit</button></span>
+          <span class="rcact"><button class="btn small" data-rc="tribe_audit_dinos">Dino Audit</button></span>
+        </div>
+        <div class="rcact" style="display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-bottom:10px">
+          <input class="ctl" data-f="message" type="text" placeholder="Message for the tribe log…" style="flex:1;min-width:220px">
+          <button class="btn small" data-rc="tribe_message">Add to Tribe Log</button>
+        </div>
+        <div class="rcact" style="display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-bottom:12px">
+          <input class="ctl" data-f="new_name" type="text" placeholder="New tribe name…" style="flex:1;min-width:220px">
+          <button class="btn small" data-rc="rename_tribe_id">Rename Tribe</button>
+        </div>
+        <div style="display:flex;flex-wrap:wrap;gap:8px">
+          <span class="rcact"><button class="btn small danger" data-rc="destroy_tribe_dinos" data-confirm="Destroy ALL of this tribe's tames?|Every tamed creature the tribe owns dies. This cannot be undone.">Destroy Tribe Tames</button></span>
+          <span class="rcact"><button class="btn small danger" data-rc="destroy_tribe_structures" data-confirm="Destroy ALL of this tribe's structures?|Every structure the tribe owns is deleted. This cannot be undone.">Destroy Tribe Structures</button></span>
+          <span class="rcact"><button class="btn small danger" data-rc="destroy_tribe_players" data-confirm="Destroy this tribe's players?|The tribe's player characters are destroyed. This cannot be undone.">Destroy Tribe Players</button></span>
+          <span class="rcact"><button class="btn small danger" data-rc="destroy_tribe" data-confirm="Destroy this whole tribe?|The tribe itself is destroyed — tames, structures and membership records go with it. This cannot be undone.">Destroy Tribe</button></span>
+        </div>
+      </div>
+
+      <div class="panel" style="margin-bottom:16px">
+        <h3>World</h3>
+        <div style="display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-bottom:8px">
+          <input class="ctl" id="rcCreatureSearch" type="search" placeholder="Search creatures — rex, dodo, wyvern…" style="flex:1;min-width:220px">
+        </div>
+        <div style="display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-bottom:12px">
+          <select class="ctl" id="rcCreature" size="6" style="flex:1;min-width:260px"></select>
+        </div>
+        <div style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:12px">
+          <span class="rcact"><button class="btn small danger" data-rc="destroy_wild_class" data-confirm="Destroy all WILD creatures of this kind?|Every untamed creature of the selected kind on the map is destroyed. They respawn over time.">Destroy Wild of This Kind</button></span>
+          <span class="rcact"><button class="btn small danger" data-rc="destroy_all_class" data-confirm="Destroy ALL creatures of this kind — INCLUDING TAMES?|Every creature of the selected kind on the map is destroyed, tamed ones too. This cannot be undone.">Destroy ALL of This Kind (incl. tames)</button></span>
+          <span class="rcact"><button class="btn small danger" data-rc="destroy_wild_dinos" data-confirm="Destroy all wild creatures?|Every untamed creature on the map is destroyed (the standard reset after changing spawn settings). They repopulate over the next minutes; expect a brief lag spike.">Destroy All Wild Creatures</button></span>
+        </div>
+        <div style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:12px">
+          <span class="muted" style="align-self:center">Valguero weather:</span>
+          <span class="rcact"><button class="btn small" data-rc="weather_rainbow">Rainbow</button></span>
+          <span class="rcact"><button class="btn small" data-rc="weather_aurora">Northern Lights</button></span>
+        </div>
+        <div style="display:flex;flex-wrap:wrap;gap:8px">
+          <span class="rcact"><button class="btn small danger" data-rc="destroy_all_enemies" data-confirm="Destroy ALL non-player creatures — INCLUDING EVERY TAME?|Every creature on the map that isn't a player dies, tamed ones included. This cannot be undone.">Destroy All Creatures (incl. tames)</button></span>
+          <span class="rcact"><button class="btn small danger" data-rc="destroy_structures" data-confirm="Destroy ALL player structures on the map?|Every structure owned by any player is deleted, server-wide. This cannot be undone.">Destroy All Structures</button></span>
+          <span class="rcact"><button class="btn small danger" data-rc="restart_level" data-confirm="Restart the level?|The map restarts without a full server process restart (per ARKon's documentation). Everyone in game will be disconnected.">Restart Level</button></span>
+          <span class="rcact"><button class="btn small danger" data-rc="shutdown" data-confirm="Shut the server down?|The console saves the world first, then the server shuts down and stays off until it is started again (Overview has the Start button).">Shut Down Server (saves first)</button></span>
+        </div>
+        <p class="muted" style="margin-bottom:0;line-height:1.55">Spawning creatures, teleporting players and taming have no RCON form — those commands only work for an admin inside the game, because they act at that player's position. Everything here works from the server console itself.</p>
+      </div>
+
+      <div class="panel">
+        <h3>Command Output</h3>
+        <div class="muted" style="margin-bottom:8px">Exactly what was sent, and what the server answered. Most commands answer with silence when they succeed — that's normal for ARK.</div>
+        <div id="rconOut" style="font-family:Consolas,monospace;font-size:13px;line-height:1.5;white-space:pre-wrap;word-break:break-word;max-height:420px;overflow:auto"></div>
+      </div>
+    </div>
+  </section>
 </div>
 
 <div id="modalWrap">
@@ -472,6 +681,8 @@ function showView(v) {
   if (v === "players") { renderPlayers(); loadPlayerLists(); }
   if (v === "deaths") { loadDeaths(); }
   if (v === "tames") { loadTames(); }
+  if (v === "names") { loadNames(); }
+  if (v === "rcon") { initRcon(); }
 }
 document.querySelectorAll(".navbtn").forEach(function (b) {
   b.addEventListener("click", function () { showView(b.dataset.view); });
@@ -669,7 +880,7 @@ var playerTab = "";
 var PPR = null, PLV = null, PDEATHS = [];
 function renderPlayerTabs() {
   if (!PPR) return;
-  var names = (PPR.players || []).map(function (p) { return p.name; });
+  var names = (PPR.players || []).filter(function (p) { return p.show_tab !== false; }).map(function (p) { return p.name; });
   if (playerTab && names.indexOf(playerTab) < 0) playerTab = "";
   $("#plTabs").innerHTML = ['<button class="btn small fpill' + (playerTab === "" ? " active" : "") + '" data-t="">All Players</button>']
     .concat(names.map(function (n) {
@@ -1205,6 +1416,352 @@ loadOverview();
 setInterval(function () {
   loadOverview().then(function () { if (curView === "players") renderPlayers(); });
 }, 30000);
+
+/* ---------------- names ---------------- */
+var NAMES_GROUPS = [];
+function loadNames() {
+  api("/api/names").then(function (r) {
+    NAMES_GROUPS = r.groups || [];
+    var wrap = $("#namesWrap");
+    if (!NAMES_GROUPS.length) {
+      wrap.innerHTML = '<div class="panel"><span class="muted">No usernames detected yet — they appear here as the log scanner reads joins, deaths and level sightings.</span></div>';
+      return;
+    }
+    wrap.innerHTML = NAMES_GROUPS.map(function (g, i) {
+      return '<div class="panel" style="margin-bottom:12px">' +
+        '<div style="display:flex;flex-wrap:wrap;gap:10px;align-items:center">' +
+        '<span class="orb" style="font-size:17px;font-weight:700">' + esc(g.display) + "</span>" +
+        (g.show ? '<span class="badge incr">own tab</span>' : '<span class="badge plain">no own tab</span>') +
+        '<span style="flex:1"></span>' +
+        '<label class="muted"><input type="checkbox" id="nmShow' + i + '"' + (g.show ? " checked" : "") + '> Own player tab</label></div>' +
+        '<div style="margin-top:8px">' + g.keys.map(function (k) {
+          return '<span class="badge plain" style="margin:0 6px 6px 0">' + esc(k.key) + " · " + esc(k.kinds.join("/")) + "</span>";
+        }).join("") + "</div>" +
+        '<div style="display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-top:4px">' +
+        '<input class="ctl" id="nmNick' + i + '" type="text" value="' + esc(g.nickname) + '" placeholder="Nickname (blank = use the real name)" style="flex:1;min-width:200px">' +
+        '<button class="btn small" data-nmsave="' + i + '">Save</button></div></div>';
+    }).join("");
+    document.querySelectorAll("[data-nmsave]").forEach(function (b) {
+      b.addEventListener("click", function () {
+        var i = Number(b.getAttribute("data-nmsave"));
+        var g = NAMES_GROUPS[i];
+        if (!g) return;
+        api("/api/names", {
+          method: "POST", headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            keys: g.keys.map(function (k) { return k.key; }),
+            nickname: $("#nmNick" + i).value,
+            show: $("#nmShow" + i).checked
+          })
+        }).then(function (r) {
+          NAMES_GROUPS = r.groups || [];
+          toast("Saved.");
+          loadNames();
+        }).catch(function (e) { toast("Save failed: " + e.message, true); });
+      });
+    });
+  }).catch(function (e) {
+    $("#namesWrap").innerHTML = '<div class="panel"><span class="muted">Names unavailable: ' + esc(e.message) + "</span></div>";
+  });
+}
+
+/* ---------------- rcon ---------------- */
+var RC = { players: [], learned: {}, data: null, out: [] };
+var RC_ACCOUNT = { kick: 1, ban: 1, unban: 1, chat_to_name: 1, rename_player: 1 };
+var RC_PID = { give_item: 1, give_xp: 1, chibi_xp: 1, kill_player: 1, clear_inventory: 1, creative_mode: 1, tekengrams: 1, max_ascend: 1, defeat_all_bosses: 1, rename_player_id: 1 };
+var RC_TRIBE = { tribe_message: 1, tribe_players: 1, tribe_audit_structures: 1, tribe_audit_dinos: 1, rename_tribe_id: 1, destroy_tribe_dinos: 1, destroy_tribe_structures: 1, destroy_tribe_players: 1, destroy_tribe: 1 };
+var RC_CLASS = { destroy_all_class: 1, destroy_wild_class: 1 };
+
+function rcRenderOut() {
+  $("#rconOut").innerHTML = RC.out.map(function (e) {
+    return '<div style="margin-bottom:10px"><span style="color:var(--tek)">&gt; ' + esc(e.cmd) + "</span>\n" +
+      (e.err ? '<span style="color:#f26d6d">' + esc(e.err) + "</span>"
+             : esc(e.output || "(no reply — that means it worked, for most ARK commands)")) + "</div>";
+  }).join("");
+}
+function rcLog(cmd, output, err) {
+  RC.out.unshift({ cmd: cmd, output: output || "", err: err || "" });
+  if (RC.out.length > 60) RC.out.pop();
+  rcRenderOut();
+}
+function rcPost(path, body) {
+  return api(path, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body || {}) });
+}
+function rcLearn(name, pid, source) {
+  if (!name || !pid) return;
+  var k = String(name).toLowerCase();
+  if (RC.learned[k] !== pid) {
+    RC.learned[k] = pid;
+    rcLog("(player id lookup)", "PlayerID for " + name + ": " + pid + " (from " + source + ")");
+  }
+  var sel = rcSelectedPlayer();
+  if (sel && sel.name && sel.name.toLowerCase() === k) $("#rcPlayerId").value = pid;
+}
+function rcSetPlayers(players) {
+  RC.players = players || [];
+  var sel = $("#rcPlayer");
+  sel.innerHTML = RC.players.map(function (p, i) {
+    return '<option value="' + i + '">' + esc(p.name) + (p.id ? " · " + esc(p.id) : "") + "</option>";
+  }).join("") + '<option value="__all__">— All players —</option>';
+  RC.players.forEach(function (p) {
+    if (p.id && /^\d{5,12}$/.test(p.id)) rcLearn(p.name, p.id, "the player list");
+  });
+  if (RC.players.length) { sel.value = "0"; rcPlayerChanged(); }
+}
+function rcSelectedPlayer() {
+  var v = $("#rcPlayer").value;
+  if (v === "__all__" || v === "") return null;
+  return RC.players[Number(v)] || null;
+}
+function rcPlayerChanged() {
+  var p = rcSelectedPlayer();
+  if (p) {
+    var pid = RC.learned[p.name.toLowerCase()];
+    if (pid) $("#rcPlayerId").value = pid;
+  }
+}
+function rcLoadData() {
+  if (RC.data) { rcRenderItems(""); rcRenderCreatures(""); return; }
+  api("/api/rcon/data").then(function (r) {
+    RC.data = r;
+    rcRenderItems("");
+    rcRenderCreatures("");
+  }).catch(function (e) { toast("RCON data failed to load: " + e.message, true); });
+}
+function rcItemMode(it) {
+  if (it.path) return "path";
+  if (it.id) return "num";
+  return "";
+}
+function rcRenderItems(filter) {
+  if (!RC.data) return;
+  var f = (filter || "").toLowerCase();
+  var list = (RC.data.items || []).filter(function (it) {
+    return !f || it.name.toLowerCase().indexOf(f) >= 0 || (it.category || "").toLowerCase().indexOf(f) >= 0;
+  });
+  var sel = $("#rcItem");
+  sel.innerHTML = "";
+  list.slice(0, 200).forEach(function (it) {
+    var o = document.createElement("option");
+    var mode = rcItemMode(it);
+    o.textContent = it.name + (it.id ? " · #" + it.id : "") + (it.contested ? " †" : "") + (mode === "" ? " · GFI only — can't give to a player" : "") + " · " + (it.category || "");
+    o.value = it.name;
+    o.setAttribute("data-mode", mode);
+    if (it.id) o.setAttribute("data-id", it.id);
+    if (it.path) o.setAttribute("data-path", it.path);
+    if (it.gfi) o.setAttribute("data-gfi", it.gfi);
+    if (it.contested) o.setAttribute("data-contested", "1");
+    sel.appendChild(o);
+  });
+  rcItemChanged();
+}
+function rcItemChanged() {
+  var sel = $("#rcItem");
+  var o = sel.options[sel.selectedIndex];
+  var w = $("#rcItemWarn");
+  if (!o) { w.textContent = ""; return; }
+  if (o.getAttribute("data-mode") === "") {
+    w.textContent = "This item has no verified blueprint path or item number in the sources, so it can't be given to a player over RCON." + (o.getAttribute("data-gfi") ? " In-game GFI code: " + o.getAttribute("data-gfi") : "");
+  } else if (o.getAttribute("data-contested")) {
+    w.textContent = "† Sources disagree on this item's number. If the give silently does nothing, the number is the suspect — tell Vox which item and it gets re-checked against the live wiki.";
+  } else if (o.getAttribute("data-mode") === "path") {
+    w.textContent = "Given by its verified blueprint path.";
+  } else {
+    w.textContent = "";
+  }
+}
+function rcRenderCreatures(filter) {
+  if (!RC.data) return;
+  var f = (filter || "").toLowerCase();
+  var list = (RC.data.creatures || []).filter(function (c) {
+    return !f || c.name.toLowerCase().indexOf(f) >= 0 || c.class.toLowerCase().indexOf(f) >= 0;
+  });
+  var sel = $("#rcCreature");
+  sel.innerHTML = "";
+  list.slice(0, 200).forEach(function (c) {
+    var o = document.createElement("option");
+    o.textContent = c.name + (c.asa_only ? " · ASA — may not exist on this server" : "") + " · " + (c.group || "");
+    o.value = c.name;
+    o.setAttribute("data-class", c.class);
+    sel.appendChild(o);
+  });
+}
+function rcExec(action, payload) {
+  payload.action = action;
+  return rcPost("/api/rcon/exec", payload).then(function (r) {
+    rcLog((r.commands || [action]).join("  then  "), r.output || "");
+    if (action === "tribe_players" && r.output) rcLearnFromTribeList(r.output);
+    return r;
+  }).catch(function (e) {
+    rcLog(action, "", e.message);
+    throw e;
+  });
+}
+function rcLearnFromTribeList(text) {
+  (text || "").split("\n").forEach(function (line) {
+    var nums = line.match(/\d{5,}/g) || [];
+    if (!nums.length) return;
+    var low = line.toLowerCase();
+    RC.players.forEach(function (p) {
+      if (low.indexOf(p.name.toLowerCase()) >= 0) {
+        var cand = nums.filter(function (n) { return n.length <= 12; }).sort(function (a, b) { return a.length - b.length; })[0];
+        if (cand) rcLearn(p.name, cand, "the tribe player list");
+      }
+    });
+  });
+}
+function rcFields(btn) {
+  var host = btn.closest(".rcact");
+  var out = {};
+  if (!host) return out;
+  host.querySelectorAll("[data-f]").forEach(function (el) {
+    out[el.getAttribute("data-f")] = el.type === "checkbox" ? el.checked : el.value;
+  });
+  return out;
+}
+function rcRun(action, btn) {
+  var fields = rcFields(btn);
+  var base = {};
+  Object.keys(fields).forEach(function (k) { base[k] = fields[k]; });
+  if (RC_TRIBE[action]) {
+    base.tribe_id = $("#rcTribeId").value.trim();
+    if (!base.tribe_id) { toast("Enter a tribe ID first.", true); return; }
+  }
+  if (RC_CLASS[action]) {
+    var cs = $("#rcCreature");
+    var co = cs.options[cs.selectedIndex];
+    if (!co) { toast("Pick a creature first.", true); return; }
+    base.class = co.getAttribute("data-class");
+  }
+  if (action === "give_item") {
+    var is = $("#rcItem");
+    var io = is.options[is.selectedIndex];
+    if (!io) { toast("Pick an item first.", true); return; }
+    var mode = io.getAttribute("data-mode");
+    if (!mode) { toast("That item can't be given to a player over RCON — no verified path or number.", true); return; }
+    base.mode = mode;
+    if (mode === "num") base.item_id = Number(io.getAttribute("data-id"));
+    if (mode === "path") base.item_path = io.getAttribute("data-path");
+  }
+  if (!RC_ACCOUNT[action] && !RC_PID[action]) {
+    rcExec(action, base).then(function () { toast("Sent."); }).catch(function () {});
+    return;
+  }
+  var selVal = $("#rcPlayer").value;
+  var targets = [];
+  if (selVal === "__all__") {
+    targets = RC.players.slice();
+    if (!targets.length) { toast("Nobody is online to target.", true); return; }
+  } else {
+    var p = rcSelectedPlayer();
+    if (!p) { toast("Pick a player first.", true); return; }
+    targets = [p];
+  }
+  var skipped = [];
+  var chain = Promise.resolve();
+  targets.forEach(function (p) {
+    var payload = {};
+    Object.keys(base).forEach(function (k) { payload[k] = base[k]; });
+    if (RC_ACCOUNT[action]) {
+      payload.account_id = p.id || "";
+      payload.name = p.name;
+      if ((action === "kick" || action === "ban" || action === "unban") && !p.id) { skipped.push(p.name + " (no identifier in the player list)"); return; }
+    }
+    if (RC_PID[action]) {
+      var pid = (targets.length === 1) ? $("#rcPlayerId").value.trim() : (RC.learned[p.name.toLowerCase()] || "");
+      if (!pid) { skipped.push(p.name + " (no PlayerID known)"); return; }
+      payload.player_id = pid;
+    }
+    chain = chain.then(function () { return rcExec(action, payload).catch(function () {}); });
+  });
+  chain.then(function () {
+    toast(skipped.length ? "Done — skipped: " + skipped.join(", ") : "Sent.");
+  });
+}
+var rcPending = null;
+function rcConfirm(title, text, fn) {
+  rcPending = fn;
+  $("#modalTitle").textContent = title;
+  $("#modalText").textContent = text;
+  $("#modalConfirm").textContent = "Do it";
+  $("#modalWrap").classList.add("show");
+}
+$("#modalConfirm").addEventListener("click", function () {
+  var fn = rcPending; rcPending = null;
+  if (fn) fn();
+});
+$("#modalCancel").addEventListener("click", function () { rcPending = null; });
+document.querySelectorAll("[data-rc]").forEach(function (b) {
+  b.addEventListener("click", function () {
+    var action = b.getAttribute("data-rc");
+    var conf = b.getAttribute("data-confirm");
+    if (conf) {
+      var parts = conf.split("|");
+      rcConfirm(parts[0], parts[1] || "", function () { rcRun(action, b); });
+    } else {
+      rcRun(action, b);
+    }
+  });
+});
+$("#rcPlayer").addEventListener("change", rcPlayerChanged);
+$("#rcItem").addEventListener("change", rcItemChanged);
+$("#rcItemSearch").addEventListener("input", function () { rcRenderItems(this.value); });
+$("#rcCreatureSearch").addEventListener("input", function () { rcRenderCreatures(this.value); });
+$("#rconUnlock").addEventListener("click", function () {
+  var pw = $("#rconPw").value;
+  $("#rconLockErr").textContent = "";
+  rcPost("/api/rcon/unlock", { password: pw }).then(function (r) {
+    $("#rconPw").value = "";
+    $("#rconLocked").style.display = "none";
+    $("#rconMenu").style.display = "";
+    rcSetPlayers(r.players || []);
+    rcLoadData();
+    rcLog("(unlock)", "Connected. " + (r.players || []).length + " player(s) online.");
+    api("/api/rcon/status").then(function (s) {
+      $("#rconWhere").textContent = s.host ? "Server " + s.host + ":" + s.port : "";
+    }).catch(function () {});
+  }).catch(function (e) {
+    $("#rconLockErr").textContent = e.message;
+  });
+});
+$("#rconPw").addEventListener("keydown", function (e) {
+  if (e.key === "Enter") $("#rconUnlock").click();
+});
+$("#rconLock").addEventListener("click", function () {
+  rcPost("/api/rcon/lock", {}).then(function () {
+    $("#rconMenu").style.display = "none";
+    $("#rconLocked").style.display = "";
+    RC.players = [];
+    toast("RCON locked — password forgotten.");
+  }).catch(function (e) { toast("Lock failed: " + e.message, true); });
+});
+$("#rconRefreshPlayers").addEventListener("click", function () {
+  api("/api/rcon/players").then(function (r) {
+    rcSetPlayers(r.players || []);
+    rcLog("ListPlayers", r.raw || "");
+  }).catch(function (e) { rcLog("ListPlayers", "", e.message); });
+});
+var rconInited = false;
+function initRcon() {
+  api("/api/rcon/status").then(function (s) {
+    $("#rconTarget").textContent = s.host ? "This console will connect to " + s.host + ":" + s.port + "." : "";
+    if (s.unlocked) {
+      $("#rconLocked").style.display = "none";
+      $("#rconMenu").style.display = "";
+      $("#rconWhere").textContent = s.host ? "Server " + s.host + ":" + s.port : "";
+      rcLoadData();
+      if (!rconInited) {
+        rconInited = true;
+        api("/api/rcon/players").then(function (r) { rcSetPlayers(r.players || []); }).catch(function () {});
+      }
+    } else {
+      $("#rconLocked").style.display = "";
+      $("#rconMenu").style.display = "none";
+    }
+  }).catch(function (e) {
+    $("#rconLockErr").textContent = e.message;
+  });
+}
 </script>
 </body>
 </html>

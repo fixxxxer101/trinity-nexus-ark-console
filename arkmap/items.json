@@ -1,0 +1,1179 @@
+{
+ "version": 1,
+ "items": [
+  {
+   "name": "Simple Pistol",
+   "category": "Weapons and Attachments",
+   "id": 1,
+   "path": "Blueprint'/Game/PrimalEarth/CoreBlueprints/Weapons/PrimalItem_WeaponGun.PrimalItem_WeaponGun'",
+   "gfi": "WeaponGun"
+  },
+  {
+   "name": "Assault Rifle",
+   "category": "Weapons and Attachments",
+   "id": 2
+  },
+  {
+   "name": "Rocket Launcher",
+   "category": "Weapons and Attachments",
+   "id": 3
+  },
+  {
+   "name": "Simple Bullet",
+   "category": "Ammunition",
+   "id": 4
+  },
+  {
+   "name": "Bow",
+   "category": "Weapons and Attachments",
+   "id": 5
+  },
+  {
+   "name": "Grenade",
+   "category": "Weapons and Attachments",
+   "id": 6
+  },
+  {
+   "name": "Wood",
+   "category": "Resources",
+   "id": 7
+  },
+  {
+   "name": "Stone",
+   "category": "Resources",
+   "id": 8
+  },
+  {
+   "name": "Metal",
+   "category": "Resources",
+   "id": 9,
+   "gfi": "PrimalItemResource_Metal"
+  },
+  {
+   "name": "Hide",
+   "category": "Resources",
+   "id": 10,
+   "gfi": "PrimalItemResource_Hide"
+  },
+  {
+   "name": "Chitin",
+   "category": "Resources",
+   "id": 11,
+   "gfi": "PrimalItemResource_Chitin"
+  },
+  {
+   "name": "Raw Meat",
+   "category": "Consumables",
+   "id": 12
+  },
+  {
+   "name": "Spoiled Meat",
+   "category": "Consumables",
+   "id": 13
+  },
+  {
+   "name": "Cooked Meat",
+   "category": "Consumables",
+   "id": 14
+  },
+  {
+   "name": "Water Jar",
+   "category": "Tools",
+   "id": 15
+  },
+  {
+   "name": "Water Jar (Full)",
+   "category": "Tools",
+   "id": 16
+  },
+  {
+   "name": "Cloth Pants",
+   "category": "Armor",
+   "id": 17
+  },
+  {
+   "name": "Cloth Shirt",
+   "category": "Armor",
+   "id": 18
+  },
+  {
+   "name": "Cloth Hat",
+   "category": "Armor",
+   "id": 19
+  },
+  {
+   "name": "Cloth Boots",
+   "category": "Armor",
+   "id": 20
+  },
+  {
+   "name": "Cloth Gloves",
+   "category": "Armor",
+   "id": 21
+  },
+  {
+   "name": "Hide Pants",
+   "category": "Armor",
+   "id": 22
+  },
+  {
+   "name": "Hide Shirt",
+   "category": "Armor",
+   "id": 23
+  },
+  {
+   "name": "Hide Hat",
+   "category": "Armor",
+   "id": 24
+  },
+  {
+   "name": "Hide Boots",
+   "category": "Armor",
+   "id": 25
+  },
+  {
+   "name": "Hide Gloves",
+   "category": "Armor",
+   "id": 26
+  },
+  {
+   "name": "Chitin Leggings",
+   "category": "Armor",
+   "id": 27
+  },
+  {
+   "name": "Chitin Chestpiece",
+   "category": "Armor",
+   "id": 28
+  },
+  {
+   "name": "Chitin Helmet",
+   "category": "Armor",
+   "id": 29
+  },
+  {
+   "name": "Chitin Boots",
+   "category": "Armor",
+   "id": 30
+  },
+  {
+   "name": "Chitin Gauntlets",
+   "category": "Armor",
+   "id": 31
+  },
+  {
+   "name": "Stone Arrow",
+   "category": "Ammunition",
+   "id": 32
+  },
+  {
+   "name": "Stone Pick",
+   "category": "Tools",
+   "id": 33
+  },
+  {
+   "name": "Stone Hatchet",
+   "category": "Tools",
+   "id": 34
+  },
+  {
+   "name": "Metal Pick",
+   "category": "Tools",
+   "id": 35
+  },
+  {
+   "name": "Metal Hatchet",
+   "category": "Tools",
+   "id": 36
+  },
+  {
+   "name": "Torch",
+   "category": "Tools",
+   "id": 37
+  },
+  {
+   "name": "Paintbrush",
+   "category": "Tools",
+   "id": 38
+  },
+  {
+   "name": "Campfire",
+   "category": "Structures",
+   "id": 39
+  },
+  {
+   "name": "Standing Torch",
+   "category": "Structures",
+   "id": 40
+  },
+  {
+   "name": "Hide Sleeping Bag",
+   "category": "Structures",
+   "id": 41
+  },
+  {
+   "name": "C4 Remote Detonator",
+   "category": "Weapons and Attachments",
+   "id": 42
+  },
+  {
+   "name": "C4 Charge",
+   "category": "Weapons and Attachments",
+   "id": 43
+  },
+  {
+   "name": "Blood Extraction Syringe",
+   "category": "Tools",
+   "id": 44
+  },
+  {
+   "name": "Blood Pack",
+   "category": "Consumables",
+   "id": 45,
+   "path": "Blueprint'/Game/PrimalEarth/CoreBlueprints/Items/Consumables/PrimalItemConsumable_BloodPack.PrimalItemConsumable_BloodPack'",
+   "gfi": "BloodPack"
+  },
+  {
+   "name": "Improvised Explosive Device",
+   "category": "Weapons and Attachments",
+   "id": 46
+  },
+  {
+   "name": "Waterskin",
+   "category": "Tools",
+   "id": 47
+  },
+  {
+   "name": "Waterskin (Full)",
+   "category": "Tools",
+   "id": 48
+  },
+  {
+   "name": "Berrybush Seeds",
+   "category": "Seeds",
+   "id": 49
+  },
+  {
+   "name": "Fertilizer",
+   "category": "Farming",
+   "id": 50,
+   "gfi": "Fertilizer_Compost"
+  },
+  {
+   "name": "Bingleberry Soup (as named in source list)",
+   "category": "Consumables",
+   "id": 51
+  },
+  {
+   "name": "Medical Brew",
+   "category": "Consumables",
+   "id": 52
+  },
+  {
+   "name": "Energy Brew",
+   "category": "Consumables",
+   "id": 53
+  },
+  {
+   "name": "Dinosaur Feces",
+   "category": "Farming",
+   "id": 54
+  },
+  {
+   "name": "Human Feces",
+   "category": "Farming",
+   "id": 55
+  },
+  {
+   "name": "Stegosaurus Egg",
+   "category": "Eggs",
+   "id": 56,
+   "path": "Blueprint'/Game/PrimalEarth/Test/PrimalItemConsumable_Egg_Stego.PrimalItemConsumable_Egg_Stego'"
+  },
+  {
+   "name": "Spear",
+   "category": "Weapons and Attachments",
+   "id": 57
+  },
+  {
+   "name": "Red Coloring",
+   "category": "Dye",
+   "id": 58
+  },
+  {
+   "name": "Green Coloring",
+   "category": "Dye",
+   "id": 59
+  },
+  {
+   "name": "Blue Coloring",
+   "category": "Dye",
+   "id": 60
+  },
+  {
+   "name": "Yellow Coloring",
+   "category": "Dye",
+   "id": 61
+  },
+  {
+   "name": "Purple Coloring",
+   "category": "Dye",
+   "id": 62
+  },
+  {
+   "name": "Orange Coloring",
+   "category": "Dye",
+   "id": 63
+  },
+  {
+   "name": "Black Coloring",
+   "category": "Dye",
+   "id": 64
+  },
+  {
+   "name": "White Coloring",
+   "category": "Dye",
+   "id": 65
+  },
+  {
+   "name": "Brown Coloring",
+   "category": "Dye",
+   "id": 66
+  },
+  {
+   "name": "Cyan Coloring",
+   "category": "Dye",
+   "id": 67
+  },
+  {
+   "name": "Rex Saddle",
+   "category": "Saddles",
+   "id": 69
+  },
+  {
+   "name": "Tranq Arrow",
+   "category": "Ammunition",
+   "id": 70
+  },
+  {
+   "name": "Pistol Hat Skin",
+   "category": "Skins",
+   "id": 71
+  },
+  {
+   "name": "GPS",
+   "category": "Tools",
+   "id": 72
+  },
+  {
+   "name": "Flint",
+   "category": "Resources",
+   "id": 73,
+   "contested": true,
+   "gfi": "Flint"
+  },
+  {
+   "name": "Metal Ingot",
+   "category": "Resources",
+   "id": 74,
+   "contested": true,
+   "gfi": "PrimalItemResource_MetalIngot"
+  },
+  {
+   "name": "Thatch",
+   "category": "Resources",
+   "id": 75,
+   "contested": true
+  },
+  {
+   "name": "Fiber",
+   "category": "Resources",
+   "id": 76,
+   "contested": true,
+   "gfi": "Fibers"
+  },
+  {
+   "name": "Charcoal",
+   "category": "Resources",
+   "id": 77,
+   "contested": true,
+   "gfi": "Charcoal"
+  },
+  {
+   "name": "Crystal",
+   "category": "Resources",
+   "id": 78,
+   "contested": true,
+   "gfi": "PrimalItemResource_Crystal"
+  },
+  {
+   "name": "Thatch Roof",
+   "category": "Structures",
+   "id": 79
+  },
+  {
+   "name": "Thatch Door",
+   "category": "Structures",
+   "id": 80
+  },
+  {
+   "name": "Thatch Foundation",
+   "category": "Structures",
+   "id": 81
+  },
+  {
+   "name": "Thatch Wall",
+   "category": "Structures",
+   "id": 82
+  },
+  {
+   "name": "Thatch Doorframe",
+   "category": "Structures",
+   "id": 83
+  },
+  {
+   "name": "Wooden Catwalk",
+   "category": "Structures",
+   "id": 84
+  },
+  {
+   "name": "Wooden Ceiling",
+   "category": "Structures",
+   "id": 85
+  },
+  {
+   "name": "Wooden Hatchframe",
+   "category": "Structures",
+   "id": 86
+  },
+  {
+   "name": "Wooden Door",
+   "category": "Structures",
+   "id": 87
+  },
+  {
+   "name": "Wooden Foundation",
+   "category": "Structures",
+   "id": 88
+  },
+  {
+   "name": "Wooden Ladder",
+   "category": "Structures",
+   "id": 89
+  },
+  {
+   "name": "Wooden Pillar",
+   "category": "Structures",
+   "id": 90
+  },
+  {
+   "name": "Wooden Ramp",
+   "category": "Structures",
+   "id": 91
+  },
+  {
+   "name": "Wooden Trapdoor",
+   "category": "Structures",
+   "id": 92
+  },
+  {
+   "name": "Wooden Wall",
+   "category": "Structures",
+   "id": 93
+  },
+  {
+   "name": "Wooden Doorframe",
+   "category": "Structures",
+   "id": 94
+  },
+  {
+   "name": "Wooden Windowframe",
+   "category": "Structures",
+   "id": 95
+  },
+  {
+   "name": "Wooden Window",
+   "category": "Structures",
+   "id": 96
+  },
+  {
+   "name": "Wooden Sign",
+   "category": "Structures",
+   "id": 97
+  },
+  {
+   "name": "Note (Blueprint: Note in source list)",
+   "category": "Tools",
+   "id": 98
+  },
+  {
+   "name": "Citronal",
+   "category": "Farming",
+   "id": 99
+  },
+  {
+   "name": "Parasaur Saddle",
+   "category": "Saddles",
+   "id": 100
+  },
+  {
+   "name": "Raptor Saddle",
+   "category": "Saddles",
+   "id": 101
+  },
+  {
+   "name": "Stego Saddle",
+   "category": "Saddles",
+   "id": 102
+  },
+  {
+   "name": "Trike Saddle",
+   "category": "Saddles",
+   "id": 103
+  },
+  {
+   "name": "Pulmonoscorpius Saddle",
+   "category": "Saddles",
+   "id": 104
+  },
+  {
+   "name": "Storage Box",
+   "category": "Structures",
+   "id": 105
+  },
+  {
+   "name": "Large Storage Box",
+   "category": "Structures",
+   "id": 106
+  },
+  {
+   "name": "Mortar and Pestle",
+   "category": "Structures",
+   "id": 107
+  },
+  {
+   "name": "Sparkpowder",
+   "category": "Resources",
+   "id": 108
+  },
+  {
+   "name": "Gunpowder",
+   "category": "Resources",
+   "id": 109,
+   "contested": true,
+   "gfi": "Gunpowder"
+  },
+  {
+   "name": "Narcotic",
+   "category": "Consumables",
+   "id": 122,
+   "contested": true,
+   "gfi": "Narcotic"
+  },
+  {
+   "name": "Stimulant",
+   "category": "Consumables",
+   "id": 124,
+   "contested": true
+  },
+  {
+   "name": "Longneck Rifle",
+   "category": "Weapons and Attachments",
+   "id": 132
+  },
+  {
+   "name": "Specimen Implant",
+   "category": "Tools",
+   "id": 134
+  },
+  {
+   "name": "Wooden Fence Foundation",
+   "category": "Structures",
+   "id": 136
+  },
+  {
+   "name": "Scope Attachment",
+   "category": "Weapons and Attachments",
+   "id": 138
+  },
+  {
+   "name": "Slingshot",
+   "category": "Weapons and Attachments",
+   "id": 139
+  },
+  {
+   "name": "Pike",
+   "category": "Weapons and Attachments",
+   "id": 140
+  },
+  {
+   "name": "Obsidian",
+   "category": "Resources",
+   "id": 142,
+   "contested": true,
+   "gfi": "Obsidian"
+  },
+  {
+   "name": "Dinosaur Gateway",
+   "category": "Structures",
+   "id": 143
+  },
+  {
+   "name": "Cementing Paste",
+   "category": "Resources",
+   "id": 146,
+   "contested": true,
+   "gfi": "ChitinPaste"
+  },
+  {
+   "name": "Dinosaur Gate",
+   "category": "Structures",
+   "id": 147
+  },
+  {
+   "name": "Artifact of the Hunter",
+   "category": "Artifacts",
+   "id": 148
+  },
+  {
+   "name": "Oil",
+   "category": "Resources",
+   "id": 162,
+   "contested": true,
+   "gfi": "PrimalItemResource_Oil"
+  },
+  {
+   "name": "Silica Pearls",
+   "category": "Resources",
+   "id": 163,
+   "contested": true
+  },
+  {
+   "name": "Gasoline",
+   "category": "Resources",
+   "id": 164,
+   "contested": true,
+   "gfi": "PrimalItemResource_Gasoline"
+  },
+  {
+   "name": "Electronics",
+   "category": "Resources",
+   "id": 165,
+   "contested": true,
+   "gfi": "Electronics"
+  },
+  {
+   "name": "Polymer",
+   "category": "Resources",
+   "id": 166,
+   "contested": true,
+   "gfi": "PrimalItemResource_Polymer"
+  },
+  {
+   "name": "Metal Catwalk",
+   "category": "Structures",
+   "id": 167
+  },
+  {
+   "name": "Metal Ceiling",
+   "category": "Structures",
+   "id": 168
+  },
+  {
+   "name": "Metal Hatchframe",
+   "category": "Structures",
+   "id": 169
+  },
+  {
+   "name": "Metal Door",
+   "category": "Structures",
+   "id": 170
+  },
+  {
+   "name": "Metal Fence Foundation",
+   "category": "Structures",
+   "id": 171
+  },
+  {
+   "name": "Metal Foundation",
+   "category": "Structures",
+   "id": 172
+  },
+  {
+   "name": "Behemoth Gate",
+   "category": "Structures",
+   "id": 173
+  },
+  {
+   "name": "Behemoth Gateway",
+   "category": "Structures",
+   "id": 174
+  },
+  {
+   "name": "Metal Ladder",
+   "category": "Structures",
+   "id": 175
+  },
+  {
+   "name": "Metal Pillar",
+   "category": "Structures",
+   "id": 176
+  },
+  {
+   "name": "Metal Ramp",
+   "category": "Structures",
+   "id": 177
+  },
+  {
+   "name": "Metal Trapdoor",
+   "category": "Structures",
+   "id": 178
+  },
+  {
+   "name": "Metal Wall",
+   "category": "Structures",
+   "id": 179
+  },
+  {
+   "name": "Metal Doorframe",
+   "category": "Structures",
+   "id": 180
+  },
+  {
+   "name": "Metal Windowframe",
+   "category": "Structures",
+   "id": 181
+  },
+  {
+   "name": "Metal Window",
+   "category": "Structures",
+   "id": 182
+  },
+  {
+   "name": "Flare Gun",
+   "category": "Weapons and Attachments",
+   "id": 184
+  },
+  {
+   "name": "Auto Turret",
+   "category": "Structures",
+   "id": 197
+  },
+  {
+   "name": "Flashlight Attachment",
+   "category": "Weapons and Attachments",
+   "id": 205
+  },
+  {
+   "name": "Silencer Attachment",
+   "category": "Weapons and Attachments",
+   "id": 206
+  },
+  {
+   "name": "Chitin/Keratin",
+   "category": "Resources",
+   "id": 216,
+   "contested": true,
+   "gfi": "ChitinOrKeratin"
+  },
+  {
+   "name": "Keratin",
+   "category": "Resources",
+   "id": 217,
+   "contested": true,
+   "gfi": "PrimalItemResource_Keratin"
+  },
+  {
+   "name": "Metal Sign",
+   "category": "Structures",
+   "id": 218
+  },
+  {
+   "name": "Holo-Scope Attachment",
+   "category": "Weapons and Attachments",
+   "id": 219
+  },
+  {
+   "name": "Laser Attachment",
+   "category": "Weapons and Attachments",
+   "id": 220
+  },
+  {
+   "name": "Wooden Billboard",
+   "category": "Structures",
+   "id": 221
+  },
+  {
+   "name": "Fabricated Pistol",
+   "category": "Weapons and Attachments",
+   "id": 244
+  },
+  {
+   "name": "Rare Flower",
+   "category": "Resources",
+   "id": 250,
+   "contested": true,
+   "gfi": "RareFlower"
+  },
+  {
+   "name": "Rare Mushroom",
+   "category": "Resources",
+   "id": 251,
+   "contested": true,
+   "gfi": "RareMushroom"
+  },
+  {
+   "name": "Metal Billboard",
+   "category": "Structures",
+   "id": 243
+  },
+  {
+   "name": "Wall Sign",
+   "category": "Structures",
+   "id": 264
+  },
+  {
+   "name": "Metal Dinosaur Gateway",
+   "category": "Structures",
+   "id": 265
+  },
+  {
+   "name": "Metal Dinosaur Gate",
+   "category": "Structures",
+   "id": 266
+  },
+  {
+   "name": "Shotgun",
+   "category": "Weapons and Attachments",
+   "id": 267
+  },
+  {
+   "name": "Metal Wall Sign",
+   "category": "Structures",
+   "id": 269
+  },
+  {
+   "name": "Metal Spike Wall",
+   "category": "Structures",
+   "id": 296
+  },
+  {
+   "name": "Dino Glasses (skin)",
+   "category": "Skins",
+   "id": 308
+  },
+  {
+   "name": "Wood Spike Wall",
+   "category": "Structures",
+   "id": 307
+  },
+  {
+   "name": "Stone Fence Foundation",
+   "category": "Structures",
+   "id": 310
+  },
+  {
+   "name": "Stone Wall",
+   "category": "Structures",
+   "id": 311
+  },
+  {
+   "name": "Stone Ceiling",
+   "category": "Structures",
+   "id": 315
+  },
+  {
+   "name": "Stone Hatchframe",
+   "category": "Structures",
+   "id": 316
+  },
+  {
+   "name": "Reinforced Wooden Door",
+   "category": "Structures",
+   "id": 317
+  },
+  {
+   "name": "Stone Foundation",
+   "category": "Structures",
+   "id": 318
+  },
+  {
+   "name": "Reinforced Dinosaur Gate",
+   "category": "Structures",
+   "id": 319
+  },
+  {
+   "name": "Stone Dinosaur Gateway",
+   "category": "Structures",
+   "id": 320
+  },
+  {
+   "name": "Stone Pillar",
+   "category": "Structures",
+   "id": 321
+  },
+  {
+   "name": "Stone Doorframe",
+   "category": "Structures",
+   "id": 322
+  },
+  {
+   "name": "Stone Windowframe",
+   "category": "Structures",
+   "id": 323
+  },
+  {
+   "name": "Fireworks Flaregun Skin",
+   "category": "Skins",
+   "id": 324
+  },
+  {
+   "name": "Reinforced Window",
+   "category": "Structures",
+   "id": 357
+  },
+  {
+   "name": "Reinforced Trapdoor",
+   "category": "Structures",
+   "id": 358
+  },
+  {
+   "name": "Metal Sickle",
+   "category": "Tools",
+   "id": 380
+  },
+  {
+   "name": "Behemoth Stone Dinosaur Gateway",
+   "category": "Structures",
+   "id": 381
+  },
+  {
+   "name": "Behemoth Reinforced Dinosaur Gate",
+   "category": "Structures",
+   "id": 382
+  },
+  {
+   "name": "Re-Fertilizer",
+   "category": "Farming",
+   "id": 382,
+   "contested": true,
+   "gfi": "PrimalItemConsumableMiracleGro"
+  },
+  {
+   "name": "Sloped Thatch Roof",
+   "category": "Structures",
+   "id": 394
+  },
+  {
+   "name": "Sloped Thatch Wall Left",
+   "category": "Structures",
+   "id": 395
+  },
+  {
+   "name": "Sloped Thatch Wall Right",
+   "category": "Structures",
+   "id": 396
+  },
+  {
+   "name": "Wooden Roof (Sloped Wood Roof)",
+   "category": "Structures",
+   "id": 397
+  },
+  {
+   "name": "Sloped Wood Wall Left",
+   "category": "Structures",
+   "id": 398
+  },
+  {
+   "name": "Sloped Wood Wall Right",
+   "category": "Structures",
+   "id": 399
+  },
+  {
+   "name": "Stone Roof",
+   "category": "Structures",
+   "id": 400
+  },
+  {
+   "name": "Sloped Stone Wall Left",
+   "category": "Structures",
+   "id": 401
+  },
+  {
+   "name": "Sloped Stone Wall Right",
+   "category": "Structures",
+   "id": 402
+  },
+  {
+   "name": "Metal Roof",
+   "category": "Structures",
+   "id": 403
+  },
+  {
+   "name": "Sloped Metal Wall Left",
+   "category": "Structures",
+   "id": 404
+  },
+  {
+   "name": "Sloped Metal Wall Right",
+   "category": "Structures",
+   "id": 405
+  },
+  {
+   "name": "Wooden Raft",
+   "category": "Vehicles",
+   "id": 414
+  },
+  {
+   "name": "Pelt",
+   "category": "Resources",
+   "id": 419,
+   "contested": true,
+   "gfi": "PrimalItemResource_Pelt"
+  },
+  {
+   "name": "Tek Shoulder Cannon",
+   "category": "Weapons and Attachments",
+   "id": 497,
+   "contested": true,
+   "gfi": "ShoulderCannon"
+  },
+  {
+   "name": "Astrocetus Tek Saddle",
+   "category": "Saddles",
+   "id": 498,
+   "contested": true,
+   "gfi": "SpaceWhaleSaddle_Tek"
+  },
+  {
+   "name": "Absorbent Substrate",
+   "category": "Resources",
+   "gfi": "SubstrateAbsorbent"
+  },
+  {
+   "name": "Achatina Paste",
+   "category": "Resources",
+   "gfi": "SnailPaste"
+  },
+  {
+   "name": "Ammonite Bile",
+   "category": "Resources",
+   "gfi": "AmmoniteBlood"
+  },
+  {
+   "name": "Angler Gel",
+   "category": "Resources",
+   "gfi": "AnglerGel"
+  },
+  {
+   "name": "Black Pearl",
+   "category": "Resources",
+   "gfi": "BlackPearl"
+  },
+  {
+   "name": "Blue Gem",
+   "category": "Resources",
+   "gfi": "Gem_BioLum"
+  },
+  {
+   "name": "Charge Battery",
+   "category": "Resources",
+   "gfi": "ChargeBattery"
+  },
+  {
+   "name": "Clay",
+   "category": "Resources",
+   "gfi": "Clay"
+  },
+  {
+   "name": "Congealed Gas Ball",
+   "category": "Resources",
+   "gfi": "PrimalItemResource_Gas"
+  },
+  {
+   "name": "Deathworm Horn",
+   "category": "Resources",
+   "gfi": "KeratinSpike"
+  },
+  {
+   "name": "Element",
+   "category": "Resources",
+   "gfi": "PrimalItemResource_Element"
+  },
+  {
+   "name": "Element Ore",
+   "category": "Resources",
+   "gfi": "ElementOre"
+  },
+  {
+   "name": "Element Shard",
+   "category": "Resources",
+   "gfi": "ElementShard"
+  },
+  {
+   "name": "Fungal Wood",
+   "category": "Resources",
+   "gfi": "FungalWood"
+  },
+  {
+   "name": "Green Gem",
+   "category": "Resources",
+   "gfi": "Gem_Fertile"
+  },
+  {
+   "name": "Human Hair",
+   "category": "Resources",
+   "gfi": "PrimalItemResource_Hair"
+  },
+  {
+   "name": "Leech Blood",
+   "category": "Resources",
+   "gfi": "LeechBlood"
+  },
+  {
+   "name": "Leech Blood or Horns",
+   "category": "Resources",
+   "gfi": "Curing"
+  },
+  {
+   "name": "Oil (Tusoteuthis)",
+   "category": "Resources",
+   "gfi": "SquidOil"
+  },
+  {
+   "name": "Organic Polymer",
+   "category": "Resources",
+   "gfi": "Polymer_Organic"
+  },
+  {
+   "name": "Pelt, Hair, or Wool",
+   "category": "Resources",
+   "gfi": "PeltOrHair"
+  },
+  {
+   "name": "Preserving Salt",
+   "category": "Resources",
+   "gfi": "PreservingSalt"
+  },
+  {
+   "name": "Propellant",
+   "category": "Resources",
+   "gfi": "Propellant"
+  },
+  {
+   "name": "Raw Salt",
+   "category": "Resources",
+   "gfi": "RawSalt"
+  },
+  {
+   "name": "Red Gem",
+   "category": "Resources",
+   "gfi": "Gem_Element"
+  },
+  {
+   "name": "Sand",
+   "category": "Resources",
+   "gfi": "Sand"
+  }
+ ]
+}

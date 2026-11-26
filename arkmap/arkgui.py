@@ -335,6 +335,9 @@ class ConsoleGui:
         self._tab_names: list = []
         self._tab_buttons: dict = {}
         self._player_frames: dict = {}
+        self._names_frame = None
+        self._names_inner = None
+        self._names_status_label = None
         self._last_stats: dict = {}
         self._build()
 
@@ -395,7 +398,6 @@ class ConsoleGui:
         self.refresh_btn = btn("Refresh Now", self.refresh_now)
         self.update_btn = btn("Update", self.check_for_updates)
         btn("Hide to Tray", self.hide)
-        btn("Quit", self.quit)
 
         tk.Label(root,
                  text="Minimizing or closing this window sends the console "
@@ -472,11 +474,11 @@ class ConsoleGui:
             b.destroy()
         self._tab_buttons = {}
         self._tab_names = list(names)
-        keys = ["all"] + list(names) + ["terminal"]
+        keys = ["all"] + list(names) + ["names", "terminal"]
         if self._tab not in keys:
             self._tab = "all"
         for key in keys:
-            label = {"all": "All Players", "terminal": "Terminal"}.get(key, key)
+            label = {"all": "All Players", "names": "Names", "terminal": "Terminal"}.get(key, key)
             b = tk.Button(self.tabbar, text=label,
                           command=lambda k=key: self._select_tab(k),
                           bg=TAB_ON if key == self._tab else PANEL,
@@ -497,11 +499,17 @@ class ConsoleGui:
             f.pack_forget()
         if self._terminal_frame is not None:
             self._terminal_frame.pack_forget()
+        if self._names_frame is not None:
+            self._names_frame.pack_forget()
         if key == "all":
             self.all_frame.pack(fill="both", expand=True)
         elif key == "terminal":
             self._build_terminal()
             self._terminal_frame.pack(fill="both", expand=True)
+        elif key == "names":
+            self._build_names()
+            self._names_frame.pack(fill="both", expand=True)
+            self._request_names()
         else:
             frame = self._player_frames.get(key)
             if frame is None:
@@ -509,6 +517,125 @@ class ConsoleGui:
                 self._player_frames[key] = frame
             frame.pack(fill="both", expand=True)
             self._render_player_tab(key)
+
+    # ---------------------------------------------------------- names --
+    def _build_names(self) -> None:
+        if self._names_frame is not None:
+            return
+        tk = self.tk
+        frame = tk.Frame(self.content, bg=BG)
+        tk.Label(frame,
+                 text="Every username the console has detected in the "
+                      "server logs. Give an account a nickname, and "
+                      "choose who gets their own player tab. Everyone "
+                      "stays tracked either way, and All Players always "
+                      "includes everyone.",
+                 bg=BG, fg=MUTED, font=("Segoe UI", 9), wraplength=540,
+                 justify="left").pack(fill="x", pady=(0, 6))
+        self._names_status_label = tk.Label(frame, text="", bg=BG,
+                                            fg=ACCENT,
+                                            font=("Segoe UI", 9))
+        self._names_status_label.pack(fill="x", pady=(0, 4))
+        canvas = tk.Canvas(frame, bg=BG, highlightthickness=0)
+        scroll = tk.Scrollbar(frame, orient="vertical",
+                              command=canvas.yview)
+        inner = tk.Frame(canvas, bg=BG)
+        win = canvas.create_window((0, 0), window=inner, anchor="nw")
+        inner.bind("<Configure>",
+                   lambda e: canvas.configure(
+                       scrollregion=canvas.bbox("all")))
+        canvas.bind("<Configure>",
+                    lambda e: canvas.itemconfigure(win, width=e.width))
+        canvas.configure(yscrollcommand=scroll.set)
+        scroll.pack(side="right", fill="y")
+        canvas.pack(side="left", fill="both", expand=True)
+        tk.Label(inner, text="Reading the detected names...",
+                 bg=BG, fg=MUTED, font=("Segoe UI", 9)).pack(anchor="w")
+        self._names_frame = frame
+        self._names_inner = inner
+
+    def _request_names(self) -> None:
+        def work():
+            try:
+                data = arkmap.console_names()
+                self.q.put(("names_data", data.get("groups") or []))
+            except Exception as exc:
+                arkmap.log(f"GUI: names load failed ({exc})")
+        threading.Thread(target=work, daemon=True).start()
+
+    def _render_names(self, groups) -> None:
+        tk = self.tk
+        if self._names_inner is None:
+            return
+        for w in self._names_inner.winfo_children():
+            w.destroy()
+        if not groups:
+            tk.Label(self._names_inner,
+                     text="No usernames detected yet - they appear "
+                          "here as the log scanner reads joins, deaths "
+                          "and level sightings.",
+                     bg=BG, fg=MUTED, font=("Segoe UI", 9),
+                     wraplength=520, justify="left").pack(anchor="w",
+                                                          pady=8)
+            return
+        for g in groups:
+            row = tk.Frame(self._names_inner, bg=PANEL,
+                           highlightbackground=BORDER,
+                           highlightthickness=1)
+            row.pack(fill="x", pady=(0, 8))
+            top = tk.Frame(row, bg=PANEL)
+            top.pack(fill="x", padx=10, pady=(8, 0))
+            tk.Label(top, text=g.get("display") or "", bg=PANEL,
+                     fg=TEXT, font=("Segoe UI", 11, "bold")).pack(
+                         side="left")
+            if g.get("show"):
+                tk.Label(top, text="own tab", bg=PANEL, fg=ACCENT,
+                         font=("Segoe UI", 8)).pack(side="left",
+                                                    padx=(8, 0))
+            kinds = ", ".join(
+                f"{k.get('key')} ({'/'.join(k.get('kinds') or [])})"
+                for k in g.get("keys") or [])
+            tk.Label(row, text=kinds, bg=PANEL, fg=MUTED,
+                     font=("Segoe UI", 8)).pack(anchor="w", padx=10)
+            line = tk.Frame(row, bg=PANEL)
+            line.pack(fill="x", padx=10, pady=(4, 8))
+            tk.Label(line, text="Nickname", bg=PANEL, fg=MUTED,
+                     font=("Segoe UI", 9)).pack(side="left")
+            nick = tk.StringVar(value=g.get("nickname") or "")
+            tk.Entry(line, textvariable=nick, bg=BG, fg=TEXT,
+                     relief="flat", highlightbackground=BORDER,
+                     highlightthickness=1, font=("Segoe UI", 10),
+                     width=18, insertbackground=TEXT).pack(
+                         side="left", padx=(6, 10))
+            show = tk.BooleanVar(value=bool(g.get("show")))
+            tk.Checkbutton(line, text="Own tab", variable=show,
+                           bg=PANEL, fg=TEXT, activebackground=PANEL,
+                           activeforeground=TEXT, selectcolor=BG,
+                           font=("Segoe UI", 9)).pack(side="left",
+                                                       padx=(0, 10))
+            keys = [k.get("key") for k in g.get("keys") or []]
+            tk.Button(line, text="Save",
+                      command=lambda k=keys, n=nick, s=show:
+                      self._save_name_group(k, n, s),
+                      bg=PANEL, fg=TEXT, activebackground="#1e3a32",
+                      activeforeground=TEXT, relief="flat",
+                      font=("Segoe UI", 9, "bold"), padx=10, pady=3,
+                      cursor="hand2", highlightbackground=BORDER,
+                      highlightthickness=1).pack(side="left")
+
+    def _save_name_group(self, keys, nick_var, show_var) -> None:
+        nickname = nick_var.get()
+        show = bool(show_var.get())
+
+        def work():
+            try:
+                data = arkmap.save_name_group(keys, nickname, show)
+                self.q.put(("names_data", data.get("groups") or []))
+                self.q.put(("names_saved", True))
+            except Exception as exc:
+                arkmap.log(f"GUI: name save failed ({exc})")
+                self.q.put(("names_saved", False))
+        threading.Thread(target=work, daemon=True).start()
 
     def _build_terminal(self) -> None:
         if self._terminal_frame is not None:
@@ -944,6 +1071,13 @@ class ConsoleGui:
                                                text="Refresh Now")
                 elif kind == "update_check":
                     self._update_check_done(*payload)
+                elif kind == "names_data":
+                    self._render_names(payload)
+                elif kind == "names_saved":
+                    if self._names_status_label is not None:
+                        self._names_status_label.configure(
+                            text="Saved." if payload
+                            else "Save failed - see the Terminal tab log.")
                 elif kind == "cmd":
                     if payload == "show":
                         self.show()
@@ -1014,11 +1148,16 @@ class ConsoleGui:
         up = int(time.monotonic() - self.started_at)
         self.fields["uptime"].set(f"{up // 3600}h {(up % 3600) // 60}m"
                                   if up >= 3600 else f"{up // 60}m {up % 60}s")
-        names = [p["name"] for p in (s.get("presence_players") or [])]
+        all_names = [p["name"] for p in (s.get("presence_players") or [])]
+        shown = s.get("shown_names")
+        if shown is None:
+            names = all_names
+        else:
+            names = [n for n in all_names if n in shown]
         if names != self._tab_names:
             current = self._tab
             self._rebuild_tabbar(names)
-            valid = ["all", "terminal"] + names
+            valid = ["all", "names", "terminal"] + names
             self._select_tab(current if current in valid else "all")
         elif self._tab != "all":
             self._render_player_tab(self._tab)
@@ -1052,6 +1191,10 @@ def _collect_stats(cfg: dict, port: int) -> dict:
     except Exception:
         out["online_names"] = []
     out["presence_players"] = presence_players
+    try:
+        out["shown_names"] = sorted(arkmap.shown_display_names())
+    except Exception:
+        out["shown_names"] = None
     try:
         out["deaths"] = len(arkmap._load_deaths()["events"])
     except Exception:
