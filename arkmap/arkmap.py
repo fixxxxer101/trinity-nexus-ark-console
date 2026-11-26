@@ -37,7 +37,7 @@ from datetime import datetime, timezone
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
-VERSION = "2.7.2"
+VERSION = "2.7.3"
 
 APP_DIR = Path(__file__).resolve().parent
 CONFIG_DIR = Path.home() / ".arkmap"

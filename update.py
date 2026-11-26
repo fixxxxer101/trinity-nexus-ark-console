@@ -13,7 +13,9 @@ app log is local data, not software.
 Also wired into RUN-ARK-MAP.bat: press U at the start prompt, or
 run  RUN-ARK-MAP.bat update . A replaced file's old copy is kept
 under update-backup/ so an update can always be rolled back by
-hand.
+hand. The --pause flag (used by the launcher and the window's
+Update button) holds the window open at the end until Enter, so
+the result never vanishes before it is read.
 """
 import json
 import py_compile
@@ -227,4 +229,10 @@ def main() -> int:
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    code = main()
+    if "--pause" in sys.argv:
+        try:
+            input("\nPress Enter to close this window...")
+        except EOFError:
+            pass
+    sys.exit(code)

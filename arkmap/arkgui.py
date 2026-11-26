@@ -786,7 +786,7 @@ class ConsoleGui:
         if sys.platform == "win32":
             flags = subprocess.CREATE_NEW_CONSOLE
         try:
-            subprocess.Popen([pyexe, str(update_py)],
+            subprocess.Popen([pyexe, str(update_py), "--pause"],
                              cwd=str(update_py.parent),
                              creationflags=flags)
         except Exception as exc:

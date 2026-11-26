@@ -70,8 +70,9 @@ exit /b
 
 :update
 rem --- the updater runs in its own window and this launcher
-rem --- exits, so the update can replace this very file safely
-start "ARK Console Update" ".venv\Scripts\python.exe" "update.py"
+rem --- exits, so the update can replace this very file safely;
+rem --- --pause holds that window open until Enter is pressed
+start "ARK Console Update" ".venv\Scripts\python.exe" "update.py" "--pause"
 exit /b
 
 :nopython
