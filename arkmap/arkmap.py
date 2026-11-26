@@ -38,7 +38,7 @@ from datetime import datetime, timezone
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
-VERSION = "2.21.0"
+VERSION = "2.22.0"
 
 APP_DIR = Path(__file__).resolve().parent
 CONFIG_DIR = Path.home() / ".arkmap"
@@ -590,9 +590,12 @@ def parse_deaths(text: str, source: str) -> list[dict]:
       tribe tame:  'Your <Tame> - Lvl n (<Species>) was killed by ...'
       plain line:  '<Name> - Lvl n [(<Species>)] [(<Tribe>)] was killed...'
       SID line:    '<Name> - Lvl n [(<Species>)] [(<Tribe>)] was killed!
-                   [KillerSID: <id>]' - no killer name, only the
-                   killer's numeric SID (found by the sampler in the
+                   [KillerSID: <id>]' - no killer name, only a
+                   bracketed number (found by the sampler in the
                    full 202-log pass, v2.6.2); recorded as by_sid.
+                   Despite the label the game gives it, that number
+                   is the VICTIM-side player's own ARKID, proven
+                   2026-11-26 - not the killer's ID.
     Every death is written in two of these forms; the scanner dedupes
     them on (timestamp, victim, killer). Bracket timestamps are UTC.
     The raw line is kept on every event for auditing."""
@@ -1966,10 +1969,14 @@ NEMESIS_MIN_KILLS = 3
 
 
 def _load_offenders() -> dict:
-    """Identifications the family has recorded for unnamed killers:
-    {KillerSID-as-string: {species, killed_by, killed_date, note}}.
-    Lives in save/offenders.json - the console's own per-server data,
-    never shipped and never touched by the updater."""
+    """Identifications the family has recorded for presumed
+    individual nemeses: {'presumed:<Species>|<Level>':
+    {species, killed_by, killed_date, note}}. Lives in
+    save/offenders.json - the console's own per-server data,
+    never shipped and never touched by the updater. (Entries
+    keyed by a bare numeric ID are leftovers from before
+    2026-11-26, when those IDs were believed to be killers;
+    they are inert now and left untouched.)"""
     try:
         raw = json.loads(OFFENDERS_PATH.read_text(encoding="utf-8"))
         if isinstance(raw, dict) and isinstance(raw.get("identified"), dict):
@@ -1994,21 +2001,31 @@ def _killer_species(e) -> str | None:
 
 
 def console_offenders() -> dict:
-    """The nemesis board, in two kinds. (1) Unnamed killers the log
-    identified only by a numeric KillerSID: the identity is certain
-    (the same SID is the same creature), the species unknown until
-    the family hangs a trophy. (2) Presumed individuals: a named
-    species at one level with NEMESIS_MIN_KILLS or more kills,
-    players and tames counted together - a wild creature's level
-    never changes in its life, so the same species at the same
-    level killing again and again is most likely one individual
-    (Clint's rule, 2026-11-26; the card says 'presumed' because
-    two creatures can share a level). Sorted worst-first; 'repeat'
-    marks the ones with 2+ kills."""
+    """The nemesis board, reworked 2026-11-26 to match what the
+    logs actually say. Two sections:
+
+    (1) Presumed individuals: a named species at one level with
+    NEMESIS_MIN_KILLS or more kills, players and tames counted
+    together - a wild creature's level never changes in its life,
+    so the same species at the same level killing again and again
+    is most likely one individual (Clint's rule, 2026-11-26; the
+    card says 'presumed' because two creatures can share a
+    level). These are real, and they take trophies.
+
+    (2) Unexplained deaths: deaths whose log line named no killer
+    and carried only a bracketed numeric ID. That ID was hunted
+    for months as the killer's - until 2026-11-26 proved it is
+    the VICTIM-side player's own ARKID (Clint's AdminCmd line and
+    the Admin Manager both give his as 610022040, the exact ID on
+    Ghost's death line; Dakota's is 716311260, the exact ID on
+    his death line and on his Ice Wyvern's). So these deaths have
+    no recorded killer at all, and there is nothing to hunt or
+    hang: they are listed plainly, each stamped with the player
+    whose ID the line carries ('sid_player' - for a tame,
+    inferred from the player death carrying the same ID)."""
     data = _load_deaths()
     names = _player_names()
     identified = _load_offenders().get("identified", {})
-    spotted = _spotted_by_sid()
 
     def victim_of(e):
         victim = {"who": e.get("who", ""), "kind": e.get("kind"),
@@ -2019,16 +2036,24 @@ def console_offenders() -> dict:
             victim["species"] = e["species"]
         return victim
 
-    by_sid: dict = {}
+    sid_owner: dict = {}
+    for e in data["events"]:
+        if e.get("kind") == "player" and e.get("by_sid"):
+            sid_owner[int(e["by_sid"])] = _resolve_name(
+                e.get("who", ""), names)
     by_kind: dict = {}
+    unexplained: list = []
     for e in data["events"]:
         if e.get("by_sid"):
             sid = int(e["by_sid"])
-            slot = by_sid.setdefault(sid, {"kind": "sid", "sid": sid,
-                                           "key": str(sid), "kills": 0,
-                                           "victims": []})
-            slot["kills"] += 1
-            slot["victims"].append(victim_of(e))
+            unexplained.append({
+                "who": e.get("who", ""), "kind": e.get("kind"),
+                "who_lvl": e.get("who_lvl"),
+                "species": e.get("species"),
+                "player": (_resolve_name(e.get("who", ""), names)
+                           if e.get("kind") == "player" else None),
+                "ts": e.get("ts"), "sid": sid,
+                "sid_player": sid_owner.get(sid)})
             continue
         species = _killer_species(e)
         lvl = e.get("by_lvl")
@@ -2045,39 +2070,32 @@ def console_offenders() -> dict:
             elif e.get("kind") == "tame":
                 slot["tame_kills"] += 1
             slot["victims"].append(victim_of(e))
-    out = list(by_sid.values())
-    out += [s for s in by_kind.values()
-            if s["kills"] >= NEMESIS_MIN_KILLS]
+    out = [s for s in by_kind.values()
+           if s["kills"] >= NEMESIS_MIN_KILLS]
     for slot in out:
         slot["victims"].sort(key=lambda v: v.get("ts") or 0)
         slot["first_ts"] = slot["victims"][0]["ts"] if slot["victims"] else None
         slot["last_ts"] = slot["victims"][-1]["ts"] if slot["victims"] else None
         slot["repeat"] = slot["kills"] >= 2
         slot["identified"] = identified.get(slot["key"]) or None
-        slot["spotted"] = (spotted.get(slot["sid"])
-                           if slot["kind"] == "sid" else None)
     out.sort(key=lambda s: (-s["kills"], s["first_ts"] or 0))
-    return {"ok": True, "offenders": out}
+    unexplained.sort(key=lambda u: -(u["ts"] or 0))
+    return {"ok": True, "offenders": out, "unexplained": unexplained}
 
 
 def save_offender(sid, species, killed_by, killed_date, note,
                   level="", key=None) -> dict:
-    """Record the family's identification of one offender - what it
-    turned out to be, who killed it, and when - which hangs it as
-    a trophy. A blank species clears the identification (the
-    creature goes back to unidentified). Unnamed killers are keyed
-    by their KillerSID; a presumed individual is keyed by its
-    'presumed:<Species>|<Level>' group key instead. Returns the
-    fresh console_offenders()."""
-    if key:
-        store_key = str(key)
-        if not store_key.startswith("presumed:"):
-            raise ApiError("Unknown offender key.")
-    else:
-        try:
-            store_key = str(int(sid))
-        except Exception:
-            raise ApiError("No creature ID given.")
+    """Record the family's identification of one presumed
+    individual - what it turned out to be, who killed it, and
+    when - which hangs it as a trophy. A blank species clears the
+    identification. Keyed by the 'presumed:<Species>|<Level>'
+    group key. (The bracketed IDs on unnamed-killer death lines
+    turned out to be the victims' own player IDs - proven
+    2026-11-26 - so there is nothing to identify there anymore.)
+    Returns the fresh console_offenders()."""
+    if not key or not str(key).startswith("presumed:"):
+        raise ApiError("Unknown offender key.")
+    store_key = str(key)
     species = (species or "").strip()
     with _OFFENDERS_LOCK:
         data = _load_offenders()
@@ -2106,10 +2124,11 @@ _HUNT_LOCK = threading.Lock()
 # A GetAllState dump lists every living actor of one class in the
 # server log, one per line:
 #   [ts][490]21) Ankylo_Character_BP_C /Game/...:PersistentLevel.Ankylo_Character_BP_C_317
-# The trailing number is the actor's own ID - the same kind of ID
-# the tribe log records as a KillerSID. Whether the two ID spaces
-# are one is exactly what the hunt tests: the first KillerSID that
-# shows up in a dump proves it and names that nemesis.
+# The trailing number is the creature's own actor ID. It is NOT
+# the ID space of the bracketed IDs in death lines - those proved
+# to be the victims' own player ARKIDs (2026-11-26) - so a dump
+# is a census (what is alive, and how many of it), never a
+# nemesis match.
 _DUMP_RE = re.compile(
     r"\d+\)\s+([A-Za-z0-9_]+)\s+\S*:PersistentLevel\.\1_(\d+)\b")
 _CLASSES_CACHE: dict | None = None
@@ -2144,28 +2163,11 @@ def _load_hunt() -> dict:
     return {"version": 1, "searched": {}, "scanned": {}}
 
 
-def _spotted_by_sid() -> dict:
-    """{KillerSID: {species, class, ts}} for unnamed killers whose
-    actor ID has appeared in a GetAllState dump."""
-    classes = _creature_classes()
-    out = {}
-    for cls, s in _load_hunt().get("searched", {}).items():
-        for sid in s.get("matches") or []:
-            out[int(sid)] = {"species": classes.get(cls, cls),
-                             "class": cls, "ts": s.get("ts")}
-    return out
-
-
 def scan_hunt() -> None:
     """Read any newly changed cached logs for GetAllState dumps.
-    A dump marks its class searched (with the actor count from the
-    newest dump) and records any dumped actor whose ID equals an
-    unnamed killer's KillerSID as a match."""
+    A dump counts its class as censused, with the number of
+    living actors from the newest dump."""
     if not LOGCACHE_DIR.is_dir():
-        return
-    sids = {int(e["by_sid"]) for e in _load_deaths()["events"]
-            if e.get("by_sid")}
-    if not sids:
         return
     with _HUNT_LOCK:
         data = _load_hunt()
@@ -2185,19 +2187,14 @@ def scan_hunt() -> None:
                 continue
             found: dict = {}
             for m in _DUMP_RE.finditer(text):
-                cls, actor_id = m.group(1), int(m.group(2))
-                slot = found.setdefault(cls, {"actors": 0,
-                                              "matches": []})
+                cls = m.group(1)
+                slot = found.setdefault(cls, {"actors": 0})
                 slot["actors"] += 1
-                if actor_id in sids and actor_id not in slot["matches"]:
-                    slot["matches"].append(actor_id)
             for cls, slot in found.items():
                 prev = data["searched"].get(cls) or {}
                 data["searched"][cls] = {
                     "ts": prev.get("ts") or int(time.time()),
                     "actors": slot["actors"],
-                    "matches": sorted(set(prev.get("matches") or [])
-                                      | set(slot["matches"])),
                 }
                 changed = True
             data["scanned"][path.name] = fp
@@ -2207,9 +2204,9 @@ def scan_hunt() -> None:
 
 
 def console_hunt() -> dict:
-    """The Nemesis Hunt board: every dino type a GetAllState dump
-    can be run for, which ones have been searched, any KillerSID
-    matches, and the unnamed killers still being hunted."""
+    """The Creature Census board: every dino type a GetAllState
+    dump can be run for, which ones have been counted, and how
+    many were alive at the last count."""
     classes = _creature_classes()
     searched = _load_hunt().get("searched", {})
     out = []
@@ -2218,28 +2215,23 @@ def console_hunt() -> dict:
         out.append({"class": cls, "name": name,
                     "searched": cls in searched,
                     "ts": s.get("ts"), "actors": s.get("actors"),
-                    "matches": s.get("matches") or [],
                     "manual": bool(s.get("manual"))})
     for cls, s in searched.items():
         if cls not in classes:
             out.append({"class": cls, "name": cls, "searched": True,
                         "ts": s.get("ts"), "actors": s.get("actors"),
-                        "matches": s.get("matches") or [],
                         "manual": bool(s.get("manual"))})
-    out.sort(key=lambda c: (not c["matches"], c["name"].lower()))
-    targets = [{"sid": o["sid"], "kills": o["kills"],
-                "spotted": o.get("spotted")}
-               for o in console_offenders()["offenders"]
-               if o["kind"] == "sid" and not o.get("identified")]
-    return {"ok": True, "classes": out, "targets": targets,
+    out.sort(key=lambda c: c["name"].lower())
+    return {"ok": True, "classes": out,
             "searched_count": sum(1 for c in out if c["searched"]),
             "total": len(out)}
 
 
 def mark_hunt(cls, searched) -> dict:
-    """Mark or unmark one dino type by hand - for a run whose log
-    never reached the console. (The automatic mark comes from
-    dumps found in the downloaded logs.) Returns console_hunt()."""
+    """Mark or unmark one dino type as counted by hand - for a
+    run whose log never reached the console. (The automatic mark
+    comes from dumps found in the downloaded logs.) Returns
+    console_hunt()."""
     cls = str(cls or "").strip()
     if cls not in _creature_classes():
         raise ApiError("Unknown dino type.")
@@ -2250,7 +2242,6 @@ def mark_hunt(cls, searched) -> dict:
             data["searched"][cls] = {
                 "ts": prev.get("ts") or int(time.time()),
                 "actors": prev.get("actors"),
-                "matches": prev.get("matches") or [],
                 "manual": True}
         else:
             data["searched"].pop(cls, None)

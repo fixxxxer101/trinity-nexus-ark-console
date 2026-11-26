@@ -207,7 +207,7 @@
   <button class="navbtn" data-view="names">Names</button>
   <button class="navbtn" data-view="deaths">Deaths</button>
   <button class="navbtn" data-view="offenders">Repeat Offenders</button>
-  <button class="navbtn" data-view="hunt">Nemesis Hunt</button>
+  <button class="navbtn" data-view="hunt">Creature Census</button>
   <button class="navbtn" data-view="tames">Tames</button>
   <button class="navbtn" data-view="files">Files</button>
   <button class="navbtn" data-view="logs">Server Logs</button>
@@ -344,7 +344,7 @@
     <div id="deathOffenders"></div>
   </section>
 
-  <!-- ================= NEMESIS HUNT ================= -->
+  <!-- ================= CREATURE CENSUS ================= -->
   <section class="view" id="view-hunt">
     <div id="huntBox"></div>
   </section>
@@ -1066,24 +1066,21 @@ function loadPlayerLists() {
 var DEATHS = [];
 var deathPlayer = "";
 var deathSortKey = "ts", deathSortDir = -1;
-/* The killer label for a death event. The game records a creature
-   kill one of two ways: the killer's name, or - when the name could
-   not be written - its numeric KillerSID. A death with neither had
-   no killer at all (a fall, drowning, starvation, the cold: the
-   environment), which is a different thing from an unnamed creature
-   and is labelled so. Same-SID kills share a label, so one animal's
-   repeat kills group together. */
+/* The killer label for a death event. When the log could name
+   the killer, it did. When it could not, the line carries only
+   a bracketed number - proven 2026-11-26 to be the victim-side
+   player's own ARKID, not the killer's - so those deaths are
+   labelled "Killer not recorded": whatever did it was never
+   written down. A death with neither a name nor a number had
+   no killer at all (a fall, drowning, starvation, the cold:
+   the environment), which is labelled so. */
 function killerType(e) {
   if (!e) return "Environmental (no killer)";
   if (e.by) {
     var s = String(e.by).replace(/^(a|an|the)\s+/i, "").trim();
     if (s) return s;
   }
-  if (e.by_sid) {
-    var idf = OFFENDERS[e.by_sid];
-    if (idf && idf.species) return idf.species + (idf.level ? " · Lvl " + idf.level : "");
-    return "Unnamed creature (…" + String(e.by_sid).slice(-3) + ")";
-  }
+  if (e.by_sid) return "Killer not recorded";
   return "Environmental (no killer)";
 }
 function countBy(list, fn) {
@@ -1207,7 +1204,7 @@ function renderDeaths() {
     return "<tr><td>" + fmtWhen(e.ts) + "</td>" +
       "<td><b>" + esc(e.who) + "</b>" + (e.who_lvl ? ' <span class="muted">Lvl ' + num(e.who_lvl) + "</span>" : "") +
       (e.kind === "player" ? ' <span class="badge incr">player</span>' : ' <span class="badge plain">tame' + (e.species ? " · " + esc(e.species) : "") + "</span>") + "</td>" +
-      "<td>" + (e.by ? esc(e.by) + (e.by_lvl ? ' <span class="muted">Lvl ' + num(e.by_lvl) + "</span>" : "") : (e.by_sid ? (OFFENDERS[e.by_sid] && OFFENDERS[e.by_sid].species ? esc(OFFENDERS[e.by_sid].species) + ' <span class="muted">· identified</span>' : '<span class="muted">creature — name not recorded</span>') : '<span class="muted">environmental — no killer</span>')) + "</td>" +
+      "<td>" + (e.by ? esc(e.by) + (e.by_lvl ? ' <span class="muted">Lvl ' + num(e.by_lvl) + "</span>" : "") : (e.by_sid ? '<span class="muted">not recorded — only the victim\'s ID</span>' : '<span class="muted">environmental — no killer</span>')) + "</td>" +
       '<td class="muted" title="' + esc(e.raw || "") + '">' + esc(e.source || "") + "</td></tr>";
   }).join("") : '<tr><td colspan="4" class="muted">No deaths match.</td></tr>';
   $("#deathShowing").textContent = "Showing " + cap.length + " of " + sorted.length + (tamesMode ? " tame losses" : " deaths") + (deathPlayer && !tamesMode ? " for " + deathPlayer : "") + ".";
@@ -1225,27 +1222,23 @@ function loadDeaths() {
 }
 
 /* ---------------- repeat offenders ----------------
-   The nemesis board, two kinds. The unnamed killers are tracked
-   by the numeric ID the game gave them — identity certain,
-   species unknown. The named ones are tracked by their kills:
+   The nemesis board, reworked 2026-11-26 to match the truth.
+   Presumed individuals: named killers tracked by their kills —
    a wild creature's level never changes, so a species at one
    level with 3+ kills (players and tames counted together) is
-   most likely a single individual, marked "presumed". Kill one
-   in-game, come back here, and record it: the identification
-   hangs it as a trophy (and for the unnamed ones, its name then
-   replaces "unnamed creature" everywhere the deaths are shown). */
-var OFFENDERS = {};
+   most likely a single individual. Kill one in-game, come back
+   here, and record it: the identification hangs it as a trophy.
+   Unexplained deaths: deaths whose log line named no killer and
+   carried only a bracketed numeric ID — proven 2026-11-26 to be
+   the victim-side player's own ARKID, not the killer's. There
+   is nothing to hunt or hang for those; they are listed plainly
+   in their own section below. */
 var OFFENDER_LIST = [];
-function rebuildOffenderMap() {
-  OFFENDERS = {};
-  OFFENDER_LIST.forEach(function (o) {
-    if (o.kind === "sid" && o.identified) OFFENDERS[o.sid] = o.identified;
-  });
-}
+var UNEXPLAINED = [];
 function loadOffenders() {
   api("/api/offenders").then(function (r) {
     OFFENDER_LIST = r.offenders || [];
-    rebuildOffenderMap();
+    UNEXPLAINED = r.unexplained || [];
     renderOffenders();
     if (DEATHS.length) renderDeaths();
   }).catch(function () { /* the panel just stays empty */ });
@@ -1260,82 +1253,78 @@ function offenderVictimLine(v) {
 function renderOffenders() {
   var box = $("#deathOffenders");
   if (!box) return;
-  if (!OFFENDER_LIST.length) {
-    box.innerHTML = '<div class="panel" style="margin-bottom:16px"><h3>Repeat Offenders</h3>' +
-      '<div class="muted">No nemeses on record yet. When something kills a player or a tame ' +
-      "and the log keeps its name back, it is tracked here by the ID the game gave it — " +
-      "and a named creature that kills three or more of yours at the same level earns a " +
-      "place here as a presumed individual. Kill one and you can hang it here as a trophy.</div></div>";
-    return;
-  }
   var today = new Date().toISOString().slice(0, 10);
   var players = [];
   DEATHS.forEach(function (e) { if (e.kind === "player" && players.indexOf(e.who) < 0) players.push(e.who); });
-  var cards = OFFENDER_LIST.map(function (o, idx) {
-    var idf = o.identified;
-    var presumed = o.kind === "presumed";
-    var title, badges, sub;
-    if (presumed) {
-      title = esc(o.species);
-      badges = ' <span class="badge incr">presumed — most likely one creature</span>' +
+  var html = '<div class="panel" style="margin-bottom:16px"><h3>Repeat Offenders</h3>' +
+    '<div class="muted">A wild creature\'s level never changes in its life, so the same species at the ' +
+    "same level killing three or more of yours — players and tames counted together — is most likely a " +
+    "single individual, and its card says so: presumed. When you kill one, record it here — it becomes " +
+    "a trophy.</div></div>" +
+    '<datalist id="offPlayers">' + players.map(function (p) { return "<option value=\"" + esc(p) + "\">"; }).join("") + "</datalist>";
+  if (!OFFENDER_LIST.length) {
+    html += '<div class="panel" style="margin-bottom:16px"><div class="muted">No presumed nemeses on ' +
+      "record yet — no named creature has reached three kills at one level.</div></div>";
+  } else {
+    html += OFFENDER_LIST.map(function (o, idx) {
+      var idf = o.identified;
+      var title = esc(o.species);
+      var badges = ' <span class="badge incr">presumed — most likely one creature</span>' +
         (idf ? ' <span class="badge plain">trophy</span>' : "");
-      sub = "Lvl " + num(o.level) + " · " + num(o.player_kills) + " player" +
+      var sub = "Lvl " + num(o.level) + " · " + num(o.player_kills) + " player" +
         (o.player_kills === 1 ? "" : "s") + ", " + num(o.tame_kills) + " tame" +
         (o.tame_kills === 1 ? "" : "s") +
         " · first seen " + fmtWhen(o.first_ts) + " · last seen " + fmtWhen(o.last_ts);
-    } else {
-      title = idf && idf.species ? esc(idf.species) : "Creature #…" + String(o.sid).slice(-3);
-      badges = (o.repeat ? ' <span class="badge incr">repeat offender</span>' : "") +
-        (o.spotted && !idf ? ' <span class="badge incr">spotted: ' + esc(o.spotted.species) + "</span>" : "") +
-        (idf ? ' <span class="badge plain">trophy</span>' : "");
-      sub = "Game ID " + num(o.sid) +
-        " · first seen " + fmtWhen(o.first_ts) + " · last seen " + fmtWhen(o.last_ts);
-    }
-    var head = '<div class="panel" style="margin-bottom:16px"><h3>' + title + " — " +
-      o.kills + " kill" + (o.kills === 1 ? "" : "s") + badges + "</h3>" +
-      '<div class="muted" style="margin-bottom:8px">' + sub + "</div>" +
-      o.victims.map(offenderVictimLine).join("");
-    var spot = "";
-    if (!presumed && o.spotted && !idf) {
-      spot = '<div class="muted" style="margin-top:6px">Spotted in a GetAllState dump: actor ' + num(o.sid) +
-        " was listed as a <b>" + esc(o.spotted.species) + "</b> on " + fmtWhen(o.spotted.ts) +
-        ". If the dump IDs are the tribe log's IDs, that is what this creature is — kill it and hang the trophy to close the case.</div>";
-    }
-    var trophy = "";
-    if (idf) {
-      trophy = '<div style="margin-top:10px"><b>' + esc(idf.species) + "</b>" +
-        (idf.level ? ' <span class="muted">Lvl ' + num(idf.level) + "</span>" : "") +
-        (idf.killed_by ? ' — killed by <b>' + esc(idf.killed_by) + "</b>" : "") +
-        (idf.killed_date ? ' <span class="muted">on ' + esc(idf.killed_date) + "</span>" : "") +
-        (idf.note ? '<div class="muted">' + esc(idf.note) + "</div>" : "") +
-        ' <button class="btn small" data-offedit="' + idx + '">Edit</button></div>';
-    }
-    var formSpecies = idf ? (idf.species || "") : (presumed ? o.species : "");
-    var formLevel = idf && idf.level ? idf.level : (presumed ? o.level : "");
-    var form = '<div id="offform-' + idx + '" style="margin-top:10px' + (idf ? ";display:none" : "") + '">' +
-      '<div class="muted" style="margin-bottom:6px">' +
-      (idf ? "Update the identification:" :
-        presumed ? "Killed it? You already know what this one is — the blanks left are who finally killed it, and when:" :
-        "Killed it? The date fills itself — and the killer too, when only one of you is online. What it was and its level are the only blanks left:") + "</div>" +
-      '<input id="off-species-' + idx + '" type="text" placeholder="What was it? (e.g. Alpha Karkinos)" value="' + esc(formSpecies) + '" style="margin-right:6px">' +
-      '<input id="off-level-' + idx + '" type="number" min="1" max="2000" placeholder="Its level" value="' + (formLevel ? num(formLevel) : "") + '" style="width:100px;margin-right:6px">' +
-      '<input id="off-by-' + idx + '" type="text" list="offPlayers" placeholder="Killed by" value="' + (idf ? esc(idf.killed_by || "") : "") + '" style="margin-right:6px">' +
-      '<input id="off-date-' + idx + '" type="date" value="' + (idf && idf.killed_date ? esc(idf.killed_date) : today) + '" style="margin-right:6px">' +
-      '<input id="off-note-' + idx + '" type="text" placeholder="Note (optional)" value="' + (idf ? esc(idf.note || "") : "") + '" style="margin-right:6px">' +
-      '<button class="btn small" data-offsave="' + idx + '">' + (idf ? "Update trophy" : "We killed it — hang the trophy") + "</button>" +
-      (idf ? ' <button class="btn small" data-offclear="' + idx + '">Remove identification</button>' : "") +
-      '<span class="muted" id="off-status-' + idx + '" style="margin-left:8px"></span></div>';
-    return head + spot + trophy + form + "</div>";
-  }).join("");
-  box.innerHTML = '<div class="panel" style="margin-bottom:16px"><h3>Repeat Offenders</h3>' +
-    '<div class="muted">Two kinds of nemesis. The unnamed ones are tracked by the ID the game gave ' +
-    "each one — that identity is certain, but the log never learned what they are. The named ones are " +
-    "tracked by their kills: a wild creature's level never changes in its life, so the same species at " +
-    "the same level killing three or more of yours — players and tames counted together — is most " +
-    "likely a single individual, and its card says so: presumed. When you kill one, record it here — " +
-    "it becomes a trophy.</div></div>" +
-    '<datalist id="offPlayers">' + players.map(function (p) { return "<option value=\"" + esc(p) + "\">"; }).join("") + "</datalist>" +
-    cards;
+      var head = '<div class="panel" style="margin-bottom:16px"><h3>' + title + " — " +
+        o.kills + " kill" + (o.kills === 1 ? "" : "s") + badges + "</h3>" +
+        '<div class="muted" style="margin-bottom:8px">' + sub + "</div>" +
+        o.victims.map(offenderVictimLine).join("");
+      var trophy = "";
+      if (idf) {
+        trophy = '<div style="margin-top:10px"><b>' + esc(idf.species) + "</b>" +
+          (idf.level ? ' <span class="muted">Lvl ' + num(idf.level) + "</span>" : "") +
+          (idf.killed_by ? ' — killed by <b>' + esc(idf.killed_by) + "</b>" : "") +
+          (idf.killed_date ? ' <span class="muted">on ' + esc(idf.killed_date) + "</span>" : "") +
+          (idf.note ? '<div class="muted">' + esc(idf.note) + "</div>" : "") +
+          ' <button class="btn small" data-offedit="' + idx + '">Edit</button></div>';
+      }
+      var formSpecies = idf ? (idf.species || "") : o.species;
+      var formLevel = idf && idf.level ? idf.level : o.level;
+      var form = '<div id="offform-' + idx + '" style="margin-top:10px' + (idf ? ";display:none" : "") + '">' +
+        '<div class="muted" style="margin-bottom:6px">' +
+        (idf ? "Update the identification:" :
+          "Killed it? You already know what this one is — the blanks left are who finally killed it, and when:") + "</div>" +
+        '<input id="off-species-' + idx + '" type="text" placeholder="What was it? (e.g. Alpha Karkinos)" value="' + esc(formSpecies) + '" style="margin-right:6px">' +
+        '<input id="off-level-' + idx + '" type="number" min="1" max="2000" placeholder="Its level" value="' + (formLevel ? num(formLevel) : "") + '" style="width:100px;margin-right:6px">' +
+        '<input id="off-by-' + idx + '" type="text" list="offPlayers" placeholder="Killed by" value="' + (idf ? esc(idf.killed_by || "") : "") + '" style="margin-right:6px">' +
+        '<input id="off-date-' + idx + '" type="date" value="' + (idf && idf.killed_date ? esc(idf.killed_date) : today) + '" style="margin-right:6px">' +
+        '<input id="off-note-' + idx + '" type="text" placeholder="Note (optional)" value="' + (idf ? esc(idf.note || "") : "") + '" style="margin-right:6px">' +
+        '<button class="btn small" data-offsave="' + idx + '">' + (idf ? "Update trophy" : "We killed it — hang the trophy") + "</button>" +
+        (idf ? ' <button class="btn small" data-offclear="' + idx + '">Remove identification</button>' : "") +
+        '<span class="muted" id="off-status-' + idx + '" style="margin-left:8px"></span></div>';
+      return head + trophy + form + "</div>";
+    }).join("");
+  }
+  if (UNEXPLAINED.length) {
+    var rows = UNEXPLAINED.map(function (u) {
+      var name = u.kind === "player" ? (u.player || u.who) : u.who;
+      var what = u.kind === "tame" && u.species ? " · " + esc(u.species) : "";
+      var stamp = u.sid_player
+        ? "the line carries " + esc(u.sid_player) + "'s own player ID (" + num(u.sid) + ")"
+        : "the line carries player ID " + num(u.sid) + " — whose, not yet confirmed";
+      return "<div class=\"trow\"><span class=\"muted\">" + fmtWhen(u.ts) + "</span> &nbsp;<b>" +
+        esc(name) + "</b>" + what +
+        (u.who_lvl ? ' <span class="muted">Lvl ' + num(u.who_lvl) + "</span>" : "") +
+        ' <span class="muted">— ' + stamp + "</span></div>";
+    }).join("");
+    html += '<div class="panel"><h3>Unexplained deaths — ' + UNEXPLAINED.length + '</h3>' +
+      '<div class="muted" style="margin-bottom:8px">These deaths were written into the log with no ' +
+      "killer named — only a bracketed number, which turned out to be the victim's own player ID, not " +
+      "the killer's (proven in-game on Nov 26, 2026: the numbers match the players' own IDs in the " +
+      "Admin Manager). Whatever killed them was never recorded, so there is nothing here to hunt or " +
+      "hang — this is the honest list of what the logs can't explain.</div>" + rows + "</div>";
+  }
+  box.innerHTML = html;
   box.querySelectorAll("[data-offsave]").forEach(function (b) {
     b.addEventListener("click", function () { saveOffender(+b.getAttribute("data-offsave")); });
   });
@@ -1368,13 +1357,13 @@ function saveOffender(idx) {
   if (!o) return;
   var status = $("#off-status-" + idx);
   var body = {
+    key: o.key,
     species: ($("#off-species-" + idx) || {}).value || "",
     level: ($("#off-level-" + idx) || {}).value || "",
     killed_by: ($("#off-by-" + idx) || {}).value || "",
     killed_date: ($("#off-date-" + idx) || {}).value || "",
     note: ($("#off-note-" + idx) || {}).value || ""
   };
-  if (o.kind === "presumed") body.key = o.key; else body.sid = o.sid;
   if (!body.species.trim()) {
     if (status) status.textContent = "Name what it was first.";
     return;
@@ -1383,7 +1372,7 @@ function saveOffender(idx) {
   api("/api/offenders", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) })
     .then(function (r) {
       OFFENDER_LIST = r.offenders || [];
-      rebuildOffenderMap();
+      UNEXPLAINED = r.unexplained || [];
       renderOffenders();
       renderDeaths();
     })
@@ -1392,80 +1381,63 @@ function saveOffender(idx) {
 function clearOffender(idx) {
   var o = OFFENDER_LIST[idx];
   if (!o) return;
-  var body = o.kind === "presumed" ? { key: o.key, species: "" } : { sid: o.sid, species: "" };
-  api("/api/offenders", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) })
+  api("/api/offenders", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ key: o.key, species: "" }) })
     .then(function (r) {
       OFFENDER_LIST = r.offenders || [];
-      rebuildOffenderMap();
+      UNEXPLAINED = r.unexplained || [];
       renderOffenders();
       renderDeaths();
     })
     .catch(function () { /* leave the card as it was */ });
 }
-/* ---------------- nemesis hunt ----------------
-   Hunting the unnamed killers by their IDs. Pick a dino type,
+/* ---------------- creature census ----------------
+   GetAllState dumps, reframed 2026-11-26: pick a dino type,
    copy its GetAllState command, run it in-game as admin; the
-   server lists every living creature of that type in
-   ShooterGame.log, each with its actor ID. The console reads
-   the downloaded logs, marks each searched type here, and
-   flags any actor ID that equals a KillerSID. */
+   server lists every living creature of that type in its log,
+   each with its own actor ID. The console reads the downloaded
+   logs and marks each counted type here, with how many were
+   alive. (The dumps were first chased as a way to name the
+   unexplained killers; the numbers on those death lines proved
+   to be the victims' own player IDs, so a dump is a census of
+   what is out there — not an identification.) */
 var HUNT = null;
 function loadHunt() {
   api("/api/hunt").then(function (r) { HUNT = r; renderHunt(); })
     .catch(function () {
       var b = $("#huntBox");
-      if (b) b.innerHTML = '<div class="panel"><h3>Nemesis Hunt</h3><div class="muted">Could not load the hunt board.</div></div>';
+      if (b) b.innerHTML = '<div class="panel"><h3>Creature Census</h3><div class="muted">Could not load the census board.</div></div>';
     });
 }
 function renderHunt() {
   var box = $("#huntBox");
   if (!box || !HUNT) return;
-  var targets = HUNT.targets || [];
-  var tHtml = targets.length ? targets.map(function (t) {
-    return "<div class=\"trow\"><b>Creature #…" + String(t.sid).slice(-3) + "</b> — " + num(t.kills) +
-      " kill" + (t.kills === 1 ? "" : "s") +
-      (t.spotted ? ' · <span class="badge incr">spotted: ' + esc(t.spotted.species) + "</span>" : "") + "</div>";
-  }).join("") : '<div class="muted">No unnamed killers left to hunt — every one has been identified.</div>';
-  var matchCards = [];
-  (HUNT.classes || []).forEach(function (c) {
-    (c.matches || []).forEach(function (sid) {
-      matchCards.push('<div class="panel" style="margin-bottom:16px"><h3>ID match — Creature #…' +
-        String(sid).slice(-3) + " is a " + esc(c.name) + "?</h3>" +
-        '<div class="muted">Actor ' + num(sid) + " appeared in the " + esc(c.name) +
-        " dump on " + fmtWhen(c.ts) + ". If the dump's actor numbers are the same IDs the tribe log " +
-        "calls KillerSID — and this match is the test of exactly that — then the unnamed killer is a " +
-        esc(c.name) + ". Kill it and hang the trophy on the Repeat Offenders page to close the case.</div></div>");
-    });
-  });
-  var searched = (HUNT.classes || []).filter(function (c) { return c.searched; });
-  var sHtml = searched.length ? searched.map(function (c) {
-    return "<div class=\"trow\"><b>" + esc(c.name) + "</b> <span class=\"muted\">searched " + fmtWhen(c.ts) +
-      (c.actors != null ? " · " + num(c.actors) + " alive on the map" : "") +
+  var counted = (HUNT.classes || []).filter(function (c) { return c.searched; });
+  var sHtml = counted.length ? counted.map(function (c) {
+    return "<div class=\"trow\"><b>" + esc(c.name) + "</b> <span class=\"muted\">counted " + fmtWhen(c.ts) +
+      (c.actors != null ? " · " + num(c.actors) + " alive at the last count" : "") +
       (c.manual ? " · marked by hand" : "") +
-      (c.matches && c.matches.length ? ' · <span class="badge incr">ID match</span>' : "") +
       "</span> <button class=\"btn small\" data-huntunmark=\"" + esc(c.class) + "\">Unmark</button></div>";
   }).join("") : '<div class="muted">None yet. Pick a type above, run its command in-game, and this list fills itself in when the dump reaches the logs.</div>';
   var opts = (HUNT.classes || []).map(function (c) {
-    return "<option value=\"" + esc(c.class) + "\">" + esc(c.name) + (c.searched ? " — searched ✓" : "") + "</option>";
+    return "<option value=\"" + esc(c.class) + "\">" + esc(c.name) + (c.searched ? " — counted ✓" : "") + "</option>";
   }).join("");
   box.innerHTML =
-    '<div class="panel" style="margin-bottom:16px"><h3>The Nemesis Hunt</h3>' +
-    '<div class="muted">The unnamed killers on the Repeat Offenders page carry only a numeric ID. ' +
-    "In-game, an admin command — GetAllState — makes the server list every living creature of one type, " +
-    "each with its own actor ID, in ShooterGame.log. If one of those IDs is a killer's ID, the type beside " +
-    "it names the nemesis. The console reads every downloaded log, marks each type you search, and flags " +
-    "any ID match automatically.</div>" +
-    '<div style="margin-top:10px">' + tHtml + "</div></div>" +
-    matchCards.join("") +
-    '<div class="panel" style="margin-bottom:16px"><h3>Run a search</h3>' +
+    '<div class="panel" style="margin-bottom:16px"><h3>Creature Census</h3>' +
+    '<div class="muted">In-game, an admin command — GetAllState — makes the server list every living ' +
+    "creature of one type in its log. Run one from here and the console counts them from the downloaded " +
+    "logs: what is alive on the map, and how many. (These dumps were first chased hoping to name the " +
+    "killers behind the unexplained deaths; the numbers on those death lines proved to be the victims' " +
+    "own player IDs, so a dump can't name them — but a census of what is actually out there is worth " +
+    "having.)</div></div>" +
+    '<div class="panel" style="margin-bottom:16px"><h3>Run a count</h3>' +
     '<div class="muted" style="margin-bottom:8px">1. In-game, open the admin console and log in: <b>enablecheats</b> with your admin password. ' +
     "2. Pick a dino type here and copy its command. 3. Paste it in-game and run it. " +
-    "4. Give it a few minutes, then press Refresh Now (or wait for the next scan) — and if you want Vox to check right away, send the fresh ShooterGame.log from the Logs Folder.</div>" +
+    "4. Give it a few minutes, then press Refresh Now (or wait for the next scan) — the console pulls the logs itself.</div>" +
     '<select id="huntSelect" style="margin-right:6px;max-width:320px">' + opts + "</select>" +
     '<input id="huntCmd" type="text" readonly style="width:340px;margin-right:6px">' +
     '<button class="btn small" id="huntCopy">Copy command</button>' +
     '<span class="muted" id="huntCopyStatus" style="margin-left:8px"></span></div>' +
-    '<div class="panel"><h3>Progress — ' + num(HUNT.searched_count) + " of " + num(HUNT.total) + " types searched</h3>" + sHtml + "</div>";
+    '<div class="panel"><h3>Counted — ' + num(HUNT.searched_count) + " of " + num(HUNT.total) + " types</h3>" + sHtml + "</div>";
   var sel = $("#huntSelect"), cmd = $("#huntCmd");
   function syncCmd() { cmd.value = sel.value ? "admincheat GetAllState " + sel.value : ""; }
   sel.addEventListener("change", syncCmd);
@@ -1484,24 +1456,6 @@ function renderHunt() {
     });
   });
 }
-$("#deathSearch").addEventListener("input", renderDeaths);
-$("#deathSort").addEventListener("change", function () {
-  if (this.value === "custom") return;
-  deathSortKey = "ts";
-  deathSortDir = this.value === "old" ? 1 : -1;
-  renderDeaths();
-});
-document.querySelectorAll("#view-deaths th.sortable").forEach(function (th) {
-  th.addEventListener("click", function () {
-    var k = th.getAttribute("data-sk");
-    if (deathSortKey === k) { deathSortDir = -deathSortDir; }
-    else { deathSortKey = k; deathSortDir = k === "ts" ? -1 : 1; }
-    /* Keep the select honest about the actual order: it mirrors the
-       ts sorts, and shows "Custom sort" for any other column. */
-    $("#deathSort").value = deathSortKey === "ts" ? (deathSortDir === 1 ? "old" : "new") : "custom";
-    renderDeaths();
-  });
-});
 
 /* ---------------- tames ---------------- */
 var TAMES = [];
