@@ -66,9 +66,19 @@ VERSION_RE = re.compile(rb'VERSION\s*=\s*"(\d+)\.(\d+)\.(\d+)"')
 
 
 def fetch(path: str) -> bytes:
+    # The cache-busting query is load-bearing: raw.githubusercontent
+    # .com is served through a CDN that keeps serving the previous
+    # release for minutes after a push, so a plain fetch can hand
+    # back a stale file and the version check reports "already up to
+    # date" against a copy that is not (seen live 2026-11-26: the
+    # CDN still served v2.12.4's arkmap.py minutes after v2.13.0
+    # was pushed and verified through the API). The unique query
+    # makes each fetch a fresh origin read.
+    url = REPO_RAW + "/" + path + "?v=" + str(int(time.time()))
     req = urllib.request.Request(
-        REPO_RAW + "/" + path,
-        headers={"User-Agent": "TrinityNexusArkConsole-Updater"})
+        url,
+        headers={"User-Agent": "TrinityNexusArkConsole-Updater",
+                 "Cache-Control": "no-cache"})
     with urllib.request.urlopen(req, timeout=60) as resp:
         return resp.read()
 
